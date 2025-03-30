@@ -2,4 +2,3 @@ torchaudio
 transformers 
 datasets 
 jiwer
-torchtitan

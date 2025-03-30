@@ -14,6 +14,7 @@ Note: Make sure cmake is installed for brew.
 
 2. Install dependencies
 ```bash
+brew install sox
 pip install -r requirements.txt
 ```
 
