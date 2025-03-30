@@ -1,0 +1,4 @@
+torchaudio 
+transformers 
+datasets 
+jiwer
