@@ -1,4 +1,19 @@
+@import 'tailwindcss';
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
 :root {
+  --foreground-rgb: 0, 0, 0;
+  --background-rgb: 244, 244, 245;
+}
+
+body {
+  color: rgb(var(--foreground-rgb));
+  background: rgb(var(--background-rgb));
+  min-height: 100vh;
+}
+/* :root {
   --background: #ffffff;
   --foreground: #171717;
 }
@@ -39,4 +54,4 @@ a {
   html {
     color-scheme: dark;
   }
-}
+} */
