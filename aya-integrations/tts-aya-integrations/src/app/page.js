@@ -1,7 +1,7 @@
 'use client';
 //import Image from "next/image";
 // import styles from "./page.module.css";
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import AudioRecorder from '../components/AudioRecorder';
 
 
@@ -50,6 +50,19 @@ export default function Home() {
   const triggerImageUpload = () => {
     fileInputRef.current.click();
   };
+
+  const speak = () => {
+    if ("speechSynthesis" in window) {
+      const utterance = new SpeechSynthesisUtterance(outputText);
+      speechSynthesis.speak(utterance);
+    } else {
+      alert("Your browser does not support Text-to-Speech.");
+    }
+  };
+
+  useEffect(() => {
+    speak();
+  }, [outputText]) // replace this later w/ audioURL;
 
   return (
     <div className="min-h-screen bg-gray-100 p-6">
