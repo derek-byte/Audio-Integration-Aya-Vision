@@ -74,7 +74,7 @@ She had your dark suit in greasy wash water all year.
 
 ```
 whisper-stt-pipeline/
-├── whisper.py                   # Main script
+├── whisper_inference.py         # Main script
 ├── requirements.txt             # Python dependencies
 └── README.md                   
 ```
