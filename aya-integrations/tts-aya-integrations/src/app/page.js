@@ -19,15 +19,46 @@ export default function Home() {
   };
   
   // Handle form submission
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    
+    let base64Image = null
+    if (fileInputRef.current.files[0]){
+      const file = fileInputRef.current.files[0];
+      const reader = new FileReader();
+      base64Image = await new Promise((resolve, reject) => {
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    // call api 
+  try {
+    const res = await fetch('/api/vision', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: inputText || "What do you see in this image?",
+        base64Image,
+      }),
+    });
+
+    const data = await res.json();
+    console.log('🧠 Vision model response:', data);
+    setOutputText(data.reply || "No reply from vision model.");
+  } catch (err) {
+    console.error("❌ API call failed:", err);
+    setOutputText("Error: could not reach vision model.");
+  }
+
+
     // Simulate response - in a real app, this would call your backend
-    setOutputText(`Response to: ${inputText}`);
+    // setOutputText(`Response to: ${inputText}`);
     
-    // Simulate TTS - in a real app, this would generate actual audio
+    // // Simulate TTS - in a real app, this would generate actual audio
     setAudioUrl('https://example.com/audio.mp3');
     
+
     // Reset input
     setInputText('');
   };
