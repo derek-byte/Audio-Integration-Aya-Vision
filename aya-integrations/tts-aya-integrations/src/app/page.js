@@ -3,13 +3,21 @@
 // import styles from "./page.module.css";
 import { useState, useRef, useEffect } from 'react';
 import AudioRecorder from '../components/AudioRecorder';
-
-
+import Image from 'next/image';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 
 export default function Home() {
   const [inputText, setInputText] = useState('');
   const [outputText, setOutputText] = useState('');
   const [audioUrl, setAudioUrl] = useState('');
+  const [selectVision, setSelectVision] = useState(false);
   const [uploadedImage, setUploadedImage] = useState(null);
   const fileInputRef = useRef(null);
   
@@ -95,112 +103,91 @@ export default function Home() {
     speak();
   }, [outputText]) // replace this later w/ audioURL;
 
+
   return (
-    <div className="min-h-screen bg-gray-100 p-6">
+    <div className="min-h-screen bg-ayaBackground p-6">
       {/* header start */}
       <header className="mb-8">
+        <h1 className="mt-[50px] text-[32px] font-bold leading-[100%] text-center text-ayaBlack font-inter">Welcome to Aya Vision</h1>
+        {/* <p className="text-center text-gray-600">Speech-to-Text and Text-to-Speech with AYA Vision</p> */}
+      </header>
+
+
+      <div className="flex justify-center bg-gray-100 mt-[450px]">
+      <div className="flex items-center bg-black text-white rounded-full px-4 py-2 w-[504px] h-[36px] ">
+        {/* Input wrapper */}
+        <div className="flex-grow max-w-[370px]">
+          <input
+            type="text"
+            className="bg-transparent outline-none w-full text-white placeholder-gray-400"
+            placeholder="Text input..."
+          />
+        </div>
+
+        {/* Send button wrapper */}
+        <button className="ml-[100px] relative w-7 h-7">
+          {/* Grey Circle */}
+          <Image
+            src="/images/send_text_button_background.svg"
+            alt="circle"
+            fill
+            className="absolute"
+          />
+
+          {/* Arrow (centered & smaller) */}
+          <div className="absolute inset-0 flex items-center justify-center">
+            <Image
+              src="/images/sent_text_button_arrow.svg"
+              alt="arrow"
+              width={14}
+              height={14}
+            />
+          </div>
+        </button>
+      </div>
+      <div className="flex space-x-1 ml-1">
+        <button className="flex items-center justify-center bg-black text-white rounded-full w-[35px] h-[35px]">
+          <Image
+            src="/images/mic_icon.svg"
+            alt="mic"
+            width={20}
+            height={20}
+          />
+        </button>
+
+        <button 
+          onClick={()=> setSelectVision(true)}
+          className="flex items-center justify-center bg-black text-white rounded-full w-[35px] h-[35px]">
+          <Image
+            src="/images/camera_icon.svg"
+            alt="camera"
+            width={20}
+            height={20}
+            />
+        </button>
+
+        {selectVision ?? 
+        <DropdownMenu>
+        <DropdownMenuTrigger>Open</DropdownMenuTrigger>
+          <DropdownMenuContent>
+            <DropdownMenuLabel>My Account</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem>Profile</DropdownMenuItem>
+            <DropdownMenuItem>Billing</DropdownMenuItem>  
+            <DropdownMenuItem>Team</DropdownMenuItem>
+            <DropdownMenuItem>Subscription</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        }
+      </div>
+    </div>
+
+      {/* header end */}
       
 
-        <h1 className="text-3xl font-bold text-center text-blue-600">AYA Vision Integration</h1>
-        <p className="text-center text-gray-600">Speech-to-Text and Text-to-Speech with AYA Vision</p>
-      </header>
-      {/* header end */}
-      <main className="max-w-4xl mx-auto bg-white rounded-xl shadow-md overflow-hidden">
-        <div className="p-6 border-b">
-          <div className="flex flex-col space-y-4">
-            {/* Input Section */}
-            <div className="border rounded-lg p-4">
-              <div className="flex justify-between items-center mb-2">
-                <h2 className="text-xl font-semibold">Input</h2>
-                <div className="flex space-x-2">
-                  <AudioRecorder onTranscription={handleTranscription} />
-                  
-                  <div className="relative">
-                    <button 
-                      onClick={triggerImageUpload}
-                      className="px-4 py-2 bg-blue-600 text-white rounded"
-                    >
-                      UPLOAD IMAGE
-                    </button>
-                    <input 
-                      type="file" 
-                      ref={fileInputRef}
-                      className="hidden"
-                      accept="image/*"
-                      onChange={handleImageUpload}
-                    />
-                  </div>
-                </div>
-              </div>
-              
-              {uploadedImage && (
-                <div className="mb-4 border rounded p-2">
-                  <img 
-                    src={uploadedImage} 
-                    alt="Uploaded" 
-                    className="max-h-40 max-w-full mx-auto"
-                  />
-                </div>
-              )}
-              
-              <form onSubmit={handleSubmit}>
-                <textarea
-                  value={inputText}
-                  onChange={handleTextChange}
-                  placeholder="Type here or use voice input..."
-                  className="w-full h-32 p-2 border rounded resize-none"
-                ></textarea>
-                
-                <div className="flex justify-end mt-2">
-                  <button
-                    type="submit"
-                    className="px-4 py-2 bg-green-600 text-white rounded"
-                  >
-                    SEND
-                  </button>
-                </div>
-              </form>
-            </div>
-            
-            {/* Output Section */}
-            <div className="border rounded-lg p-4">
-              <h2 className="text-xl font-semibold mb-2">Output</h2>
-              
-              <div className="bg-gray-100 p-3 rounded min-h-32 mb-4">
-                {outputText || 'Response will appear here...'}
-              </div>
-              
-              {audioUrl && (
-                <div className="flex justify-center">
-                  <audio controls src={audioUrl} className="w-full">
-                    Your browser does not support the audio element.
-                  </audio>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-        
-        {/* System Information */}
-        {/* <div className="p-6 bg-gray-50">
-          <div className="flex justify-between">
-            <div className="border rounded p-3 w-64">
-              <h3 className="font-medium text-gray-700">Speech to Text Unit</h3>
-              <p className="text-sm text-gray-500">Either in-browser or isolated</p>
-            </div>
-            
-            <div className="border rounded p-3 w-64">
-              <h3 className="font-medium text-gray-700">Text to Speech Unit</h3>
-              <p className="text-sm text-gray-500">Either in-browser or isolated</p>
-            </div>
-            
-            <div className="border rounded p-3 w-64">
-              <h3 className="font-medium text-gray-700">AYA VISION 8B/32B</h3>
-              <p className="text-sm text-gray-500">Processing vision and text data</p>
-            </div>
-          </div>
-        </div> */}
-      </main>
     </div>
   );
 }
+
+
+
