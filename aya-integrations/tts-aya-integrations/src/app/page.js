@@ -79,41 +79,6 @@ export default function Home() {
   const handleTranscription = (text) => {
     setInputText(text);
   };
-
-  const handleOpenCamera = async () => {
-    try {
-      const mediaStream = await navigator.mediaDevices.getUserMedia({ video: true });
-      setStream(mediaStream);
-  
-      if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream;
-        videoRef.current.play();
-      }
-    } catch (err) {
-      console.error("Failed to access camera", err);
-    }
-  };
-  
-  const handleTakePicture = () => {
-    if (videoRef.current && canvasRef.current) {
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
-  
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-  
-      const ctx = canvas.getContext("2d");
-      if (ctx) {
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const imageData = canvas.toDataURL("image/png");
-        setCapturedImage(imageData);
-      }
-  
-      // Stop the camera stream
-      stream?.getTracks().forEach((track) => track.stop());
-      setStream(null);
-    }
-  };  
   
   
   // Handle image upload
