@@ -12,6 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import CameraCapture from '@/components/CameraCapture';
 
 export default function Home() {
   const [inputText, setInputText] = useState('');
@@ -20,6 +21,9 @@ export default function Home() {
   const [selectVision, setSelectVision] = useState(false);
   const [uploadedImage, setUploadedImage] = useState(null);
   const fileInputRef = useRef(null);
+  const [capturedImage, setCapturedImage] = useState(null);
+  const [showCamera, setShowCamera] = useState(false);
+  
   
   // Handle text input changes
   const handleTextChange = (e) => {
@@ -75,6 +79,42 @@ export default function Home() {
   const handleTranscription = (text) => {
     setInputText(text);
   };
+
+  const handleOpenCamera = async () => {
+    try {
+      const mediaStream = await navigator.mediaDevices.getUserMedia({ video: true });
+      setStream(mediaStream);
+  
+      if (videoRef.current) {
+        videoRef.current.srcObject = mediaStream;
+        videoRef.current.play();
+      }
+    } catch (err) {
+      console.error("Failed to access camera", err);
+    }
+  };
+  
+  const handleTakePicture = () => {
+    if (videoRef.current && canvasRef.current) {
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+  
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+  
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const imageData = canvas.toDataURL("image/png");
+        setCapturedImage(imageData);
+      }
+  
+      // Stop the camera stream
+      stream?.getTracks().forEach((track) => track.stop());
+      setStream(null);
+    }
+  };  
+  
   
   // Handle image upload
   const handleImageUpload = (e) => {
@@ -172,13 +212,37 @@ export default function Home() {
             </DropdownMenuTrigger>
             <DropdownMenuContent>
               {/* <DropdownMenuSeparator /> */}
-              <DropdownMenuItem>Upload Image</DropdownMenuItem>
-              <DropdownMenuItem>Camera</DropdownMenuItem>  
+              <DropdownMenuItem
+               onClick={()=> triggerImageUpload()}
+              >Upload Image</DropdownMenuItem>
+              <DropdownMenuItem
+               onClick={()=> setShowCamera(true)}>
+                Camera</DropdownMenuItem>  
             </DropdownMenuContent>
           </DropdownMenu>
         {/* )} */}
       </div>
     </div>
+    <input 
+      type="file" 
+      ref={fileInputRef}
+      className="hidden"
+      accept="image/*"
+      onChange={handleImageUpload}
+    />
+    {showCamera && (
+        <CameraCapture
+          onCapture={(imageData) => setCapturedImage(imageData)}
+          onClose={() => setShowCamera(false)}
+        />
+      )}
+
+      {capturedImage && (
+        <div className="mt-4">
+          <img src={capturedImage} alt="Captured" className="max-w-md rounded" />
+          <button onClick={() => setCapturedImage(null)} className="mt-2 px-4 py-2 bg-gray-600 text-white rounded">Retake</button>
+        </div>
+      )}
 
       {/* header end */}
       
