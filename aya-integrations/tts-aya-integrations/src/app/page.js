@@ -114,18 +114,18 @@ export default function Home() {
 
 
       <div className="flex justify-center bg-gray-100 mt-[450px]">
-      <div className="flex items-center bg-black text-white rounded-full px-4 py-2 w-[504px] h-[36px] ">
+      <div className="flex items-center justify-between bg-black text-white rounded-full px-4 py-2 w-[504px] h-[36px]">
         {/* Input wrapper */}
-        <div className="flex-grow max-w-[370px]">
+        <div className="flex-grow">
           <input
             type="text"
-            className="bg-transparent outline-none w-full text-white placeholder-gray-400"
+            className="bg-transparent outline-none w-full text-white placeholder-gray-400 flex-grow mr-3"
             placeholder="Text input..."
           />
         </div>
 
         {/* Send button wrapper */}
-        <button className="ml-[100px] relative w-7 h-7">
+        <button className="ml-auto relative w-7 h-7 translate-x-2">
           {/* Grey Circle */}
           <Image
             src="/images/send_text_button_background.svg"
@@ -155,30 +155,28 @@ export default function Home() {
           />
         </button>
 
-        <button 
-          onClick={()=> setSelectVision(true)}
-          className="flex items-center justify-center bg-black text-white rounded-full w-[35px] h-[35px]">
-          <Image
-            src="/images/camera_icon.svg"
-            alt="camera"
-            width={20}
-            height={20}
-            />
-        </button>
-
-        {selectVision ?? 
-        <DropdownMenu>
-        <DropdownMenuTrigger>Open</DropdownMenuTrigger>
-          <DropdownMenuContent>
-            <DropdownMenuLabel>My Account</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem>Profile</DropdownMenuItem>
-            <DropdownMenuItem>Billing</DropdownMenuItem>  
-            <DropdownMenuItem>Team</DropdownMenuItem>
-            <DropdownMenuItem>Subscription</DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-        }
+{/* 
+        {selectVision && (  */}
+          <DropdownMenu open={selectVision} onOpenChange={setSelectVision}>
+            <DropdownMenuTrigger asChild>
+              <button
+                className="flex items-center justify-center bg-black text-white rounded-full w-[35px] h-[35px]"
+              >
+                <Image
+                  src="/images/camera_icon.svg"
+                  alt="camera"
+                  width={20}
+                  height={20}
+                />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+              {/* <DropdownMenuSeparator /> */}
+              <DropdownMenuItem>Upload Image</DropdownMenuItem>
+              <DropdownMenuItem>Camera</DropdownMenuItem>  
+            </DropdownMenuContent>
+          </DropdownMenu>
+        {/* )} */}
       </div>
     </div>
 
