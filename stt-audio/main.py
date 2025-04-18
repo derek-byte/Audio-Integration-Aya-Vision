@@ -4,6 +4,8 @@ import sys
 import torch
 import torchaudio
 
+
+
 def transcribe_whisper(audio_path, model_size="base"):
     import whisper
     print(f"[INFO] Loading Whisper model: {model_size}")
