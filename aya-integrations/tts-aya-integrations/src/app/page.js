@@ -3,6 +3,7 @@
 // import styles from "./page.module.css";
 import { useState, useRef, useEffect } from 'react';
 import { AudioRecorderWithVisualizer } from '@/components/AudioRecorderWithVisualizer';
+import ChatInterface from '@/components/ChatInterface';
 import Image from 'next/image';
 import {
   DropdownMenu,
@@ -110,12 +111,16 @@ export default function Home() {
 
 
   return (
-    <div className="min-h-screen bg-ayaBackground p-6">
+    <div className="min-h-screen bg-white">
       {/* header start */}
       <header className="mb-8">
         <h1 className="mt-[50px] text-[32px] font-bold leading-[100%] text-center text-ayaBlack font-inter">Welcome to Aya Vision</h1>
         {/* <p className="text-center text-gray-600">Speech-to-Text and Text-to-Speech with AYA Vision</p> */}
       </header>
+
+      <div className="m-auto w-3/5">
+        <ChatInterface/>
+      </div>
 
       <AudioRecorderWithVisualizer className="my-12 w-full max-w-full" />
       <div className="flex justify-center bg-gray-100 mt-[450px]">
