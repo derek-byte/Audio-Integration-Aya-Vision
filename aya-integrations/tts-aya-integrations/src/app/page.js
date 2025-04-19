@@ -2,7 +2,7 @@
 //import Image from "next/image";
 // import styles from "./page.module.css";
 import { useState, useRef, useEffect } from 'react';
-import AudioRecorder from '../components/AudioRecorder';
+import { AudioRecorderWithVisualizer } from '@/components/AudioRecorderWithVisualizer';
 import Image from 'next/image';
 import {
   DropdownMenu,
@@ -117,7 +117,7 @@ export default function Home() {
         {/* <p className="text-center text-gray-600">Speech-to-Text and Text-to-Speech with AYA Vision</p> */}
       </header>
 
-
+      <AudioRecorderWithVisualizer className="my-12 w-full max-w-full" />
       <div className="flex justify-center bg-gray-100 mt-[450px]">
       <div className="flex items-center justify-between bg-black text-white rounded-full px-4 py-2 w-[504px] h-[36px]">
         {/* Input wrapper */}
