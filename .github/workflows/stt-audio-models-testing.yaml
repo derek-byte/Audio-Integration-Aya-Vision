@@ -1,0 +1,45 @@
+name: stt-audio-models-testing
+
+on:
+  push:
+    branches: [ "main", "stt-audio" ]
+  pull_request:
+    branches: [ "main", "stt-audio" ]
+    
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+  
+permissions:
+  contents: read
+
+jobs:
+  stt-audio-models-testing:
+
+    runs-on: ubuntu-22.04
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install System Dependencies
+      run: |
+          sudo apt update
+          sudo apt install -y libsndfile-dev ffmpeg
+      
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+        cache: 'pip' # caching pip dependencies
+
+
+    - name: Install Python dependencies
+      run: |
+        cd stt-audio
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+    - name: run models testing
+      timeout-minutes: 60
+      run: |
+        cd stt-audio      
+        python models_testing.py harvard.wav harvard.wav_transcript.txt
