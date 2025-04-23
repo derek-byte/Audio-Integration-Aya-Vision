@@ -103,12 +103,47 @@ def transcribe_nemo(audio_path, reference_text, duration):
         metrics = compute_metrics(reference_text, hyp, duration, end - start)
         print_metrics(metrics)
 
+
+# ---------------- Seamless ----------------
+def transcribe_seamless(audio_path, reference_text, duration):
+    from seamless_inference import SeamlessStreamingWrapper, AudioFrontEnd, TASK
+
+    tgt_lang = "eng"
+    source_segment_size_ms = 1000   # milliseconds # size of audio segment to provided for inference each time.
+    silence_limit_ms = 320 # milliseconds # SileroVADAgent produces EOS after this amount of silence.
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    decision_threshold = 0.5 # probability threshold for detecting speech / voice activtiy
+
+    model_config = dict(
+        source_segment_size=source_segment_size_ms,
+        silence_limit_ms=silence_limit_ms,
+        device=device,
+        decision_threshold=decision_threshold,
+        task=TASK,
+        tgt_lang=tgt_lang,
+    )
+
+    audio_frontend = AudioFrontEnd(segment_size_ms=source_segment_size_ms)
+    wrapper = SeamlessStreamingWrapper(model_config=model_config, audio_frontend=audio_frontend, tgt_lang=tgt_lang)
+
+    print(f"\n[Seamless Streaming]")
+    start = time.time()
+    hyp = wrapper.transcribe_file(
+        file_path=audio_path
+    )
+    end = time.time()
+
+    print(hyp)
+    metrics = compute_metrics(reference_text, hyp, duration, end - start)
+    print_metrics(metrics)
+
 # ---------------- Main ----------------
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Benchmark STT models with metrics")
     parser.add_argument("audio", help="Path to .wav audio file")
     parser.add_argument("reference", help="Ground truth transcript (text file)")
+    parser.add_argument("--models", help="models to run in the benchmark on", nargs='+', default=["whisper", "wav2vec2", "nemo", "seamless"], type=str)
     args = parser.parse_args()
 
     if not os.path.isfile(args.audio):
@@ -124,9 +159,17 @@ def main():
     info = torchaudio.info(args.audio)
     duration = info.num_frames / info.sample_rate
 
-    transcribe_whisper(args.audio, reference_text, duration)
-    transcribe_wav2vec2(args.audio, reference_text, duration)
-    transcribe_nemo(args.audio, reference_text, duration)
+    if "whisper" in args.models:
+        transcribe_whisper(args.audio, reference_text, duration)
+    
+    if "wav2vec2" in args.models:
+        transcribe_wav2vec2(args.audio, reference_text, duration)
+    
+    if "nemo" in args.models:
+        transcribe_nemo(args.audio, reference_text, duration)
+    
+    if "seamless" in args.models:
+        transcribe_seamless(args.audio, reference_text, duration)
 
 if __name__ == "__main__":
     main()
