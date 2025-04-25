@@ -1,10 +1,23 @@
-# TTS Benchmarking
+##  TTS Benchmarking
 
-This folder contains the scripts and datasets for benchmarking MMS Text-to-Speech (TTS) model. For evaluation MCD is usedMCD (mel-ce>#Requirements
-1. Set up your virtual environment
-python3 -m venv venv
-source venv/bin/activate
-2. Install dependencies
-pip install -r requirement.txt
-3. Run the script
-python mms_tts_script.py
+This folder contains scripts and resources for benchmarking the Meta MMS Text-to-Speech (TTS) model.
+
+The evaluation is based on Mel Cepstral Distortion (MCD), a metric that measures the similarity between generated and reference speech.
+
+##  Requirements
+
+1. **Set up your virtual environment (Windows)**
+   ```bash
+   python -m venv venv
+   .\venv\Scripts\activate
+   ```
+
+2. **Install dependencies**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. **Run the script**
+   ```bash
+   python mms_tts_script.py
+   ```
