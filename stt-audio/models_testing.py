@@ -112,10 +112,10 @@ def main():
     args = parser.parse_args()
 
     if not os.path.isfile(args.audio):
-        print(f"[ERROR] Audio file not found: {args.audio}")
+        print(f" Audio file not found: {args.audio}")
         return
     if not os.path.isfile(args.reference):
-        print(f"[ERROR] Reference file not found: {args.reference}")
+        print(f" Reference file not found: {args.reference}")
         return
 
     with open(args.reference, "r", encoding="utf-8") as f:
