@@ -266,19 +266,11 @@ class SeamlessStreamingWrapper(object):
         preds = self._run_inference_pipeline(return_partial_predictions)
         return preds
 
-
-if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Seamless Inference")
-    parser.add_argument("audio", help="Path to audio file")
-
-    args = parser.parse_args()
-
+def get_seamless_default_config() -> dict:
     tgt_lang = "eng"
     source_segment_size_ms = 1000   # milliseconds # size of audio segment to provided for inference each time.
     silence_limit_ms = 320 # milliseconds # SileroVADAgent produces EOS after this amount of silence.
-    device = "cpu" # device to run inference on
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     decision_threshold = 0.5 # probability threshold for detecting speech / voice activtiy
 
     model_config = dict(
@@ -290,12 +282,28 @@ if __name__ == "__main__":
         tgt_lang=tgt_lang,
     )
 
-    audio_frontend = AudioFrontEnd(segment_size_ms=source_segment_size_ms)
-    wrapper = SeamlessStreamingWrapper(model_config=model_config, audio_frontend=audio_frontend, tgt_lang=tgt_lang)
+    return model_config
 
-    wrapper.transcribe_file(
+def load_model(model_config: dict) -> SeamlessStreamingWrapper:
+    audio_frontend = AudioFrontEnd(segment_size_ms=model_config["source_segment_size"])
+    wrapper = SeamlessStreamingWrapper(model_config=model_config, audio_frontend=audio_frontend, tgt_lang=model_config["tgt_lang"])
+    return wrapper
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Seamless Inference")
+    parser.add_argument("audio", help="Path to audio file")
+
+    args = parser.parse_args()
+
+    model_config = get_seamless_default_config()
+    model_config["device"] = "cpu"
+    wrapper = load_model(model_config=model_config)
+    text = wrapper.transcribe_file(
         file_path=args.audio
     )
+    print(text)
 
     # import gradio  as gr
     # def gradio_callback(stream, new_chunk):

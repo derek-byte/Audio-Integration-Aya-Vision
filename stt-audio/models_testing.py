@@ -106,26 +106,8 @@ def transcribe_nemo(audio_path, reference_text, duration):
 
 # ---------------- Seamless ----------------
 def transcribe_seamless(audio_path, reference_text, duration):
-    from seamless_inference import SeamlessStreamingWrapper, AudioFrontEnd, TASK
-
-    tgt_lang = "eng"
-    source_segment_size_ms = 1000   # milliseconds # size of audio segment to provided for inference each time.
-    silence_limit_ms = 320 # milliseconds # SileroVADAgent produces EOS after this amount of silence.
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    decision_threshold = 0.5 # probability threshold for detecting speech / voice activtiy
-
-    model_config = dict(
-        source_segment_size=source_segment_size_ms,
-        silence_limit_ms=silence_limit_ms,
-        device=device,
-        decision_threshold=decision_threshold,
-        task=TASK,
-        tgt_lang=tgt_lang,
-    )
-
-    audio_frontend = AudioFrontEnd(segment_size_ms=source_segment_size_ms)
-    wrapper = SeamlessStreamingWrapper(model_config=model_config, audio_frontend=audio_frontend, tgt_lang=tgt_lang)
-
+    from seamless_inference import get_seamless_default_config, load_model
+    wrapper = load_model(model_config=get_seamless_default_config())
     print(f"\n[Seamless Streaming]")
     start = time.time()
     hyp = wrapper.transcribe_file(
