@@ -42,36 +42,12 @@ class AudioBuffer:
     def add_audio(self, audio_bytes):
         with self.lock:
             try:
-                # Try to interpret as 32-bit float PCM
-                try:
-                    # Calculate number of float32 values in the byte array
-                    num_floats = len(audio_bytes) // 4  # 4 bytes per float32
-                    
-                    # Safely unpack the bytes to float32 array
-                    audio_np = np.array(struct.unpack(f'{num_floats}f', audio_bytes[:num_floats*4]), dtype=np.float32)
-                    
-                    # If we have any remaining bytes that don't make a complete float, log it
-                    if len(audio_bytes) % 4 != 0:
-                        logging.warning(f"Audio data had {len(audio_bytes) % 4} extra bytes")
-                except struct.error:
-                    # If that fails, try 16-bit PCM
-                    num_shorts = len(audio_bytes) // 2  # 2 bytes per int16
-                    audio_np = np.array(struct.unpack(f'{num_shorts}h', audio_bytes[:num_shorts*2]), dtype=np.int16)
-                    # Convert to float32 in range [-1.0, 1.0]
-                    audio_np = audio_np.astype(np.float32) / 32768.0
-                
+                # Use little-endian int16, which is what the client sends
+                audio_np = np.frombuffer(audio_bytes, dtype='<i2').astype(np.float32) / 32768.0
                 self.buffer = np.concatenate((self.buffer, audio_np))
-                logging.debug(f"Added {len(audio_np)} samples to buffer, new length: {len(self.buffer)}")
+                logging.debug(f"Added {len(audio_np)} samples to buffer")
             except Exception as e:
-                logging.error(f"Error adding audio to buffer: {str(e)}")
-                # Fall back to simple method - try to interpret as raw PCM bytes
-                try:
-                    # Just treat as bytes and convert to floats in [-1, 1] range
-                    audio_np = np.frombuffer(audio_bytes, dtype=np.uint8).astype(np.float32) / 128 - 1
-                    self.buffer = np.concatenate((self.buffer, audio_np))
-                    logging.info(f"Fallback: Added {len(audio_np)} samples to buffer")
-                except Exception as inner_e:
-                    logging.error(f"Fallback method also failed: {str(inner_e)}")
+                logging.error(f"Failed to decode audio bytes: {e}")
     
     def get_audio(self, clear=True):
         with self.lock:
@@ -104,7 +80,7 @@ def stream_audio(ws):
             try:
                 json_data = json.loads(data)
                 audio_data = json_data.get('audio_data')
-                print(json_data, audio_data)
+                #print(json_data, audio_data)
                 
                 if audio_data:
                     # Decode base64 audio data
@@ -176,7 +152,7 @@ def process_audio(audio_bytes, session_id):
         return ""
     
     # Check if we have enough audio to process (at least 1 second)
-    if buffer.get_length_seconds() < 0.5:
+    if buffer.get_length_seconds() < 1.0:
         return ""  # Not enough audio yet
     
     # Get audio from buffer and process

@@ -52,34 +52,47 @@ export default function AudioRecorder({
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       
       // Create MediaRecorder instance
-      const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: 'audio/webm',
-      });
+      // const mediaRecorder = new MediaRecorder(stream, {
+      //   mimeType: 'audio/webm',
+      // });
+      let mimeType = '';
+      if (MediaRecorder.isTypeSupported('audio/webm')) {
+        mimeType = 'audio/webm';
+      } else if (MediaRecorder.isTypeSupported('audio/ogg')) {
+        mimeType = 'audio/ogg';
+      } else if (MediaRecorder.isTypeSupported('audio/wav')) {
+        mimeType = 'audio/wav';
+      }
+
+      const audioContext = new AudioContext({ sampleRate: 16000 });
+      const source = audioContext.createMediaStreamSource(stream);
+      const processor = audioContext.createScriptProcessor(4096, 1, 1);
       
-      mediaRecorderRef.current = mediaRecorder;
-      audioChunksRef.current = [];
+      mediaRecorderRef.current = { stream, audioContext, processor };
       
-      // Handle data available event
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-          
-          // Send audio chunk to the server via WebSocket
-          if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+      processor.onaudioprocess = (e) => {
+        const input = e.inputBuffer.getChannelData(0);
+        const int16Buffer = new Int16Array(input.length);
+      
+        for (let i = 0; i < input.length; i++) {
+          let s = Math.max(-1, Math.min(1, input[i]));
+          int16Buffer[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+        }
+      
+        const blob = new Blob([int16Buffer.buffer], { type: "application/octet-stream" });
             const reader = new FileReader();
             reader.onloadend = () => {
-              const base64data = reader.result.split(',')[1];
-              socketRef.current.send(JSON.stringify({
-                audio_data: base64data
-              }));
-            };
-            reader.readAsDataURL(event.data);
+          const base64data = reader.result.split(",")[1];
+          if (socketRef.current?.readyState === WebSocket.OPEN) {
+            socketRef.current.send(JSON.stringify({ audio_data: base64data }));
           }
-        }
+            };
+        reader.readAsDataURL(blob);
       };
       
-      // Set recording state and start recording
-      mediaRecorder.start(500); // Send chunks every 500ms
+      source.connect(processor);
+      processor.connect(audioContext.destination);
+      
       setIsRecording(true);
       setIsLoading(false);
     } catch (error) {
@@ -90,13 +103,15 @@ export default function AudioRecorder({
 
   const stopRecording = () => {
     if (mediaRecorderRef.current) {
-      mediaRecorderRef.current.stop();
+      const { stream, audioContext, processor } = mediaRecorderRef.current;
       
-      // Stop all audio tracks
-      mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+      processor?.disconnect();
+      stream?.getTracks().forEach((track) => track.stop());
+      audioContext?.close();
       
       setIsRecording(false);
     }
+    
   };
 
   return (
