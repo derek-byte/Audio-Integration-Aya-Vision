@@ -3,21 +3,21 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Mic, Camera } from "lucide-react";
+import { Mic, Camera, X } from "lucide-react";
 import CameraCapture from "./CameraCapture"; // Make sure this path matches your file structure
-import { AudioRecorderWithVisualizer } from "./AudioRecorderWithVisualizer"; // Assuming you'll place this in the same directory
+import { AudioRecorderWithVisualizer } from "./AudioRecorderWithVisualizer";
 
 export default function ChatInterface() {
   const [messages, setMessages] = useState([
     {
       isBot: true,
       content:
-        "I'm Aya Vision, a large language model, or an artificial intelligence, if you prefer. I was created by Google AI to help you in many different ways, from drafting messages and performing tasks to generating and analyzing images. You can also talk to me about something serious or just have a fun conversation. Whatever is on your mind, I'm here for you.\n\nWhat can I do for you?",
+        "I'm Aya Vision, a large language model, or an artificial intelligence, if you prefer. I was created by Google AI to help you in many different ways, from drafting messages to performing tasks to generating and analyzing images. You can also talk to me about something serious or just have a fun conversation. Whatever is on your mind, I'm here for you.\n\nWhat can I do for you?",
     },
   ]);
   const [input, setInput] = useState("");
   const [showCamera, setShowCamera] = useState(false);
-  const [showAudioRecorder, setShowAudioRecorder] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
   const [capturedImage, setCapturedImage] = useState(null);
   const messagesEndRef = useRef(null);
 
@@ -45,6 +45,11 @@ export default function ChatInterface() {
         },
       ]);
     }, 1000);
+  };
+
+  // Toggle audio recording mode
+  const toggleRecording = () => {
+    setIsRecording(!isRecording);
   };
 
   useEffect(() => {
@@ -81,24 +86,6 @@ export default function ChatInterface() {
         />
       )}
 
-      {/* Audio recorder overlay */}
-      {showAudioRecorder && (
-        <div className="absolute bottom-24 left-0 right-0 flex justify-center">
-          <div className="bg-white p-4 rounded-lg shadow-lg">
-            <AudioRecorderWithVisualizer 
-              className="mb-2"
-            />
-            <Button 
-              onClick={() => setShowAudioRecorder(false)} 
-              variant="outline"
-              className="w-full mt-2"
-            >
-              Close
-            </Button>
-          </div>
-        </div>
-      )}
-
       {/* Preview captured image */}
       {capturedImage && (
         <div className="absolute bottom-24 left-0 right-0 flex justify-center">
@@ -131,36 +118,59 @@ export default function ChatInterface() {
               </Button>
             </div>
             
-            <Input
-              type="text"
-              placeholder="Ask Aya Vision"
-              className="w-full pr-24 pl-12 py-6 border rounded-full bg-white"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-            />
+            {isRecording ? (
+              // Audio recording visualizer when in recording mode
+              <div className="w-full flex items-center">
+                <AudioRecorderWithVisualizer 
+                  className="w-full" 
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="ml-2 text-gray-500 hover:text-gray-700"
+                  onClick={toggleRecording}
+                >
+                  <X className="h-5 w-5" />
+                </Button>
+              </div>
+            ) : (
+              // Regular text input when not recording
+              <Input
+                type="text"
+                placeholder="Ask Aya Vision"
+                className="w-full pr-24 pl-12 py-6 border rounded-full bg-white"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+              />
+            )}
             
             <div className="absolute right-3 top-1/2 transform -translate-y-1/2 flex gap-2">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="text-gray-500 hover:text-gray-700"
-                onClick={() => setShowAudioRecorder(!showAudioRecorder)}
-              >
-                <span className="sr-only">Use microphone</span>
-                <Mic className="h-5 w-5" />
-              </Button>
-              <Button
-                type="submit"
-                variant="ghost"
-                size="icon"
-                className="text-gray-500 hover:text-gray-700"
-              >
-                <span className="sr-only">Send</span>
-                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M5 12H19M19 12L12 5M19 12L12 19" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </Button>
+              {!isRecording && (
+                <>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="text-gray-500 hover:text-gray-700"
+                    onClick={toggleRecording}
+                  >
+                    <span className="sr-only">Use microphone</span>
+                    <Mic className="h-5 w-5" />
+                  </Button>
+                  <Button
+                    type="submit"
+                    variant="ghost"
+                    size="icon"
+                    className="text-gray-500 hover:text-gray-700"
+                  >
+                    <span className="sr-only">Send</span>
+                    <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M5 12H19M19 12L12 5M19 12L12 19" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </Button>
+                </>
+              )}
             </div>
           </div>
         </form>
