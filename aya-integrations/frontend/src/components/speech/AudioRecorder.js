@@ -80,13 +80,13 @@ export default function AudioRecorder({
         }
       
         const blob = new Blob([int16Buffer.buffer], { type: "application/octet-stream" });
-            const reader = new FileReader();
-            reader.onloadend = () => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
           const base64data = reader.result.split(",")[1];
           if (socketRef.current?.readyState === WebSocket.OPEN) {
             socketRef.current.send(JSON.stringify({ audio_data: base64data }));
           }
-            };
+        };
         reader.readAsDataURL(blob);
       };
       
@@ -104,11 +104,11 @@ export default function AudioRecorder({
   const stopRecording = () => {
     if (mediaRecorderRef.current) {
       const { stream, audioContext, processor } = mediaRecorderRef.current;
-      
+    
       processor?.disconnect();
       stream?.getTracks().forEach((track) => track.stop());
       audioContext?.close();
-      
+    
       setIsRecording(false);
     }
     
