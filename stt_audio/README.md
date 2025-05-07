@@ -30,15 +30,7 @@ pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-Also install `ffmpeg` system-wide:
-
-```bash
-# macOS
-brew install ffmpeg
-
-# Ubuntu/Debian
-sudo apt install ffmpeg
-```
+Also install `ffmpeg`
 
 ---
 
@@ -52,8 +44,8 @@ python main.py path/to/audio.wav --backend whisper --model base
 
 Arguments:
 - audio (required): Path to the audio file
-- `--backend`: Choose from whisper, wav2vec2, or nemo (default: whisper)
-- `--model`: Model size name depending on the backend
+- `--model`: Choose from whisper, wav2vec2, or nemo (default: whisper)
+- `--size`: Model size name depending on the backend
 
 ---
 
@@ -62,35 +54,25 @@ Arguments:
 Whisper
 
 ```bash
-python whisper_inference.py sample.wav --backend whisper --model base
+python whisper_inference.py sample.wav --model whisper --size base
 ```
 Wav2Vec2
 
 ```bash
-python whisper_inference.py sample.wav --backend wav2vec2 --model facebook/wav2vec2-base-960h
+python whisper_inference.py sample.wav --model wav2vec2 --size facebook/wav2vec2-base-960h
 ```
 Nemo
 
 ```bash
-python whisper_inference.py sample.wav --backend nemo --model stt_en_conformer_ctc_small
+python whisper_inference.py sample.wav --model nemo --size stt_en_conformer_ctc_small
 ```
 
-## Supported Models (Quick Reference)
+## Supported Sizes For Each Model
 
 | Whisper Models              | Wav2Vec2 Models                         | NeMo Models                        |
-|-----------------------------|-----------------------------------------|------------------------------------|
 | `tiny`                      | `facebook/wav2vec2-base-960h`           | `stt_en_conformer_ctc_small`       |
 | `base`                      | `facebook/wav2vec2-large-960h`          | `stt_en_conformer_ctc_medium`      |
 | `small`                     | `facebook/wav2vec2-large-960h-lv60-self`| `stt_en_conformer_ctc_large`       |
 | `medium`                    | `facebook/wav2vec2-large-xlsr-53`       |                                    |
 | `large`                     |                                         |                                    |
 
-
-## Project Structure
-
-```
-stt-sudio/
-├── main.py                   # Main script
-├── requirements.txt             # Python dependencies
-└── README.md                   
-```
