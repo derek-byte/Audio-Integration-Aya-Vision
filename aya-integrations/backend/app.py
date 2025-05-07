@@ -10,19 +10,79 @@ import uuid
 import logging
 import json
 import time
+import torch
+import torchaudio
+import numpy as np
+import threading
+import struct
+from faster_whisper import WhisperModel
 
-# Import your STT model library here
-# For example, if using whisper:
-# import whisper
+from preprocessing_noisy_audio import noise_reduction_with_estimation, apply_vad
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for all routes
+CORS(app, resources={
+    r"/*": {"origins": ["http://localhost:3000"]}
+})  # Enable CORS for all routes
 sock = Sock(app)
 logging.basicConfig(level=logging.INFO)
 
-# Initialize your STT model here
-# For example:
-# model = whisper.load_model("base")  # Load the smallest model
+# Initialize faster-whisper model - load once at startup for efficiency
+model = WhisperModel("base", device="cpu")  # Use "cuda" if you have a compatible GPU
+logging.info("Faster-Whisper model loaded successfully")
+
+# Store active sessions
+active_sessions = {}
+
+class AudioBuffer:
+    def __init__(self, sample_rate=16000):
+        self.buffer = np.array([], dtype=np.float32)
+        self.sample_rate = sample_rate
+        self.lock = threading.Lock()
+    
+    def add_audio(self, audio_bytes):
+        with self.lock:
+            try:
+                # Try to interpret as 32-bit float PCM
+                try:
+                    # Calculate number of float32 values in the byte array
+                    num_floats = len(audio_bytes) // 4  # 4 bytes per float32
+                    
+                    # Safely unpack the bytes to float32 array
+                    audio_np = np.array(struct.unpack(f'{num_floats}f', audio_bytes[:num_floats*4]), dtype=np.float32)
+                    
+                    # If we have any remaining bytes that don't make a complete float, log it
+                    if len(audio_bytes) % 4 != 0:
+                        logging.warning(f"Audio data had {len(audio_bytes) % 4} extra bytes")
+                except struct.error:
+                    # If that fails, try 16-bit PCM
+                    num_shorts = len(audio_bytes) // 2  # 2 bytes per int16
+                    audio_np = np.array(struct.unpack(f'{num_shorts}h', audio_bytes[:num_shorts*2]), dtype=np.int16)
+                    # Convert to float32 in range [-1.0, 1.0]
+                    audio_np = audio_np.astype(np.float32) / 32768.0
+                
+                self.buffer = np.concatenate((self.buffer, audio_np))
+                logging.debug(f"Added {len(audio_np)} samples to buffer, new length: {len(self.buffer)}")
+            except Exception as e:
+                logging.error(f"Error adding audio to buffer: {str(e)}")
+                # Fall back to simple method - try to interpret as raw PCM bytes
+                try:
+                    # Just treat as bytes and convert to floats in [-1, 1] range
+                    audio_np = np.frombuffer(audio_bytes, dtype=np.uint8).astype(np.float32) / 128 - 1
+                    self.buffer = np.concatenate((self.buffer, audio_np))
+                    logging.info(f"Fallback: Added {len(audio_np)} samples to buffer")
+                except Exception as inner_e:
+                    logging.error(f"Fallback method also failed: {str(inner_e)}")
+    
+    def get_audio(self, clear=True):
+        with self.lock:
+            audio = self.buffer.copy()
+            if clear:
+                self.buffer = np.array([], dtype=np.float32)
+            return audio
+    
+    def get_length_seconds(self):
+        with self.lock:
+            return len(self.buffer) / self.sample_rate
 
 @sock.route('/stream-audio')
 def stream_audio(ws):
@@ -31,7 +91,9 @@ def stream_audio(ws):
     """
     logging.info("WebSocket connection established")
     
-    # You could initialize a streaming STT processor here if your model supports it
+    # Create a unique session ID for this connection
+    session_id = str(uuid.uuid4())
+    active_sessions[session_id] = AudioBuffer()
     
     try:
         while True:
@@ -42,19 +104,22 @@ def stream_audio(ws):
             try:
                 json_data = json.loads(data)
                 audio_data = json_data.get('audio_data')
+                print(json_data, audio_data)
                 
                 if audio_data:
                     # Decode base64 audio data
                     audio_bytes = base64.b64decode(audio_data)
                     
                     # Process with your STT model
-                    transcription = process_audio(audio_bytes)
+                    transcription = process_audio(audio_bytes, session_id)
+                    print("TRANSCRIPTION", transcription)
                     
-                    # Send transcription back to client
-                    ws.send(json.dumps({
-                        'transcription': transcription,
-                        'timestamp': time.time()
-                    }))
+                    # Only send back if there's actual transcription
+                    if transcription:
+                        ws.send(json.dumps({
+                            'transcription': transcription,
+                            'timestamp': time.time()
+                        }))
             except Exception as e:
                 logging.error(f"Error processing audio chunk: {str(e)}")
                 ws.send(json.dumps({
@@ -62,6 +127,10 @@ def stream_audio(ws):
                 }))
     except Exception as e:
         logging.error(f"WebSocket error: {str(e)}")
+    finally:
+        # Clean up session
+        if session_id in active_sessions:
+            del active_sessions[session_id]
 
 @app.route('/transcribe', methods=['POST'])
 def transcribe():
@@ -89,35 +158,109 @@ def transcribe():
         if os.path.exists(temp_file_path):
             os.remove(temp_file_path)
 
-def process_audio(audio_bytes):
+def process_audio(audio_bytes, session_id):
     """
-    Process audio bytes with your STT model
-    Replace this with your actual STT implementation
+    Process audio bytes with the STT model
+    For streaming, we accumulate chunks and process when enough data is available
     """
-    # Example implementation (replace with your STT model)
-    # For demonstration purposes - this is where you'd use your model
+    buffer = active_sessions.get(session_id)
+    if not buffer:
+        logging.error(f"Session {session_id} not found")
+        return "Error: Session not found"
     
-    # If using whisper with streaming chunks (example):
-    # audio_data = whisper.pad_or_trim(audio_bytes)
-    # mel = whisper.log_mel_spectrogram(audio_data).to(model.device)
-    # result = model.decode(mel, options=whisper.DecodingOptions())
-    # return result.text
+    try:
+        # Add the new audio to the buffer
+        buffer.add_audio(audio_bytes)
+    except Exception as e:
+        logging.error(f"Error adding audio to buffer: {str(e)}")
+        return ""
     
-    # For demo purposes, return placeholder text
-    return "Sample transcription from audio chunk"
+    # Check if we have enough audio to process (at least 1 second)
+    if buffer.get_length_seconds() < 0.5:
+        return ""  # Not enough audio yet
+    
+    # Get audio from buffer and process
+    audio_np = buffer.get_audio()
+    
+    try:
+        # Make sure the audio is not empty after getting from buffer
+        if len(audio_np) == 0:
+            return ""
+            
+        # Apply preprocessing for noise reduction
+        # cleaned_audio = noise_reduction_with_estimation(audio_np, 16000)
+        # cleaned_audio = apply_vad(cleaned_audio, 16000)
+        cleaned_audio = audio_np
+        if cleaned_audio is None or len(cleaned_audio) == 0:
+            logging.warning("No audio left after VAD")
+            return ""
+        
+        # Save as temporary file for Faster-Whisper to process
+        temp_file_path = os.path.join(tempfile.gettempdir(), f"{uuid.uuid4()}.wav")
+        
+        # Ensure audio is in correct format for saving
+        audio_tensor = torch.tensor(cleaned_audio).unsqueeze(0)
+        if torch.isnan(audio_tensor).any() or torch.isinf(audio_tensor).any():
+            logging.warning("Audio contains NaN or Inf values, replacing with zeros")
+            audio_tensor = torch.nan_to_num(audio_tensor, nan=0.0, posinf=0.0, neginf=0.0)
+            
+        # Normalize audio to prevent clipping
+        if audio_tensor.abs().max() > 1.0:
+            audio_tensor = audio_tensor / audio_tensor.abs().max()
+            
+        torchaudio.save(temp_file_path, audio_tensor, 16000)
+        
+        # Use Faster-Whisper for transcription
+        segments, info = model.transcribe(temp_file_path, beam_size=5)
+        
+        # Combine all segments into a single transcription
+        transcription = " ".join([segment.text for segment in segments])
+        
+        # Clean up
+        if os.path.exists(temp_file_path):
+            os.remove(temp_file_path)
+            
+        return transcription.strip()
+    except Exception as e:
+        logging.error(f"Error in process_audio: {str(e)}")
+        return ""
 
 def process_audio_file(file_path):
     """
-    Process a complete audio file with your STT model
-    Replace this with your actual STT implementation
+    Process a complete audio file with the STT model
     """
-    # Example implementation (replace with your STT model)
-    # If using whisper with a complete file:
-    # result = model.transcribe(file_path)
-    # return result["text"]
-    
-    # For demo purposes, return placeholder text
-    return "Sample transcription from complete audio file"
+    try:
+        # Load and preprocess audio
+        waveform, sample_rate = torchaudio.load(file_path)
+        
+        # Convert to mono if stereo
+        if waveform.shape[0] > 1:
+            waveform = torch.mean(waveform, dim=0, keepdim=True)
+        
+        # Save preprocessed audio to temporary file
+        temp_file_path = os.path.join(tempfile.gettempdir(), f"{uuid.uuid4()}.wav")
+        torchaudio.save(temp_file_path, waveform, sample_rate)
+        
+        # Apply preprocessing
+        cleaned_path = os.path.join(tempfile.gettempdir(), f"{uuid.uuid4()}_cleaned.wav")
+        
+        # Use your existing preprocessing function
+        from preprocessing_noisy_audio import save_audio
+        cleaned_path = save_audio(temp_file_path, output_path=cleaned_path)
+        
+        # Transcribe with Faster-Whisper
+        segments, info = model.transcribe(cleaned_path, beam_size=5)
+        transcription = " ".join([segment.text for segment in segments])
+        
+        # Clean up temporary files
+        for path in [temp_file_path, cleaned_path]:
+            if os.path.exists(path):
+                os.remove(path)
+                
+        return transcription
+    except Exception as e:
+        logging.error(f"Error in process_audio_file: {str(e)}")
+        raise
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
