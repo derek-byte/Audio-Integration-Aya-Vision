@@ -69,10 +69,25 @@ def transcribe_nemo(audio_path, model_name="stt_en_conformer_ctc_small"):
     print(transcription)
     return transcription
 
+def transcribe_seamless(audio_path):
+    from seamless_inference import load_model, get_seamless_default_config
+    model_config = get_seamless_default_config()
+    # uncomment the following line to modify the model_config in order to run seamless on cpu
+    # model_config["device"] = "cpu"
+    wrapper = load_model(model_config=model_config)
+    print(f"\n[Seamless Streaming]")
+    transcription = wrapper.transcribe_file(
+        file_path=audio_path
+    )
+
+    print("\n Transcribed Text: ")
+    print(transcription)
+    return transcription
+
 def main():
     parser = argparse.ArgumentParser(description="Unified STT Inference")
     parser.add_argument("audio", help="Path to audio file")
-    parser.add_argument("--model", choices=["whisper", "wav2vec2", "nemo"], default="whisper", help="STT backend to use")
+    parser.add_argument("--model", choices=["whisper", "wav2vec2", "nemo", "seamless"], default="whisper", help="STT backend to use")
     parser.add_argument("--size", default=None, help="Model name/size for the selected backend")
 
     args = parser.parse_args()
@@ -94,6 +109,9 @@ def main():
     elif args.model == "nemo":
         model_name = args.size or "stt_en_conformer_ctc_small"
         transcribe_nemo(cleaned_audio, model_name)
+    
+    elif args.model == "seamless":
+        transcribe_seamless(cleaned_audio)
 
 if __name__ == "__main__":
     main()
