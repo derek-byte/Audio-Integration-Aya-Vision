@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Mic, Camera } from "lucide-react";
 import CameraCapture from "./CameraCapture"; // Make sure this path matches your file structure
-import { AudioRecorderWithVisualizer } from "./AudioRecorderWithVisualizer"; // Assuming you'll place this in the same directory
+import { AudioRecorderWithSTT } from "./AudioRecorderWithSTT"; // Our new component
 
 export default function ChatInterface() {
   const [messages, setMessages] = useState([
@@ -22,7 +22,7 @@ export default function ChatInterface() {
   const messagesEndRef = useRef(null);
 
   const handleSendMessage = (e) => {
-    e.preventDefault();
+    e?.preventDefault();
     if (input.trim() === "" && !capturedImage) return;
     
     const newMessage = {
@@ -45,6 +45,18 @@ export default function ChatInterface() {
         },
       ]);
     }, 1000);
+  };
+
+  // Handle speech to text completion
+  const handleTranscriptionComplete = (transcript) => {
+    if (transcript.trim()) {
+      setInput(transcript);
+      
+      // If you want to auto-send the message after transcription:
+      setTimeout(() => {
+        handleSendMessage();
+      }, 100);
+    }
   };
 
   useEffect(() => {
@@ -81,21 +93,13 @@ export default function ChatInterface() {
         />
       )}
 
-      {/* Audio recorder overlay */}
+      {/* Audio recorder/STT overlay */}
       {showAudioRecorder && (
-        <div className="absolute bottom-24 left-0 right-0 flex justify-center">
-          <div className="bg-white p-4 rounded-lg shadow-lg">
-            <AudioRecorderWithVisualizer 
-              className="mb-2"
-            />
-            <Button 
-              onClick={() => setShowAudioRecorder(false)} 
-              variant="outline"
-              className="w-full mt-2"
-            >
-              Close
-            </Button>
-          </div>
+        <div className="absolute bottom-24 left-0 right-0 flex justify-center z-20">
+          <AudioRecorderWithSTT 
+            onTranscriptionComplete={handleTranscriptionComplete}
+            onClose={() => setShowAudioRecorder(false)}
+          />
         </div>
       )}
 
