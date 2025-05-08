@@ -7,7 +7,12 @@ export default {
     ],
     theme: {
       extend: {
+        fontFamily: {
+          inter: ['Inter', 'sans-serif'],
+        },
         colors: {
+          ayaBlack: '#0E0E0E',
+          ayaBackground: '#F5F7FB',
           primary: '#3B82F6', // blue-500
           secondary: '#10B981', // emerald-500
         },
