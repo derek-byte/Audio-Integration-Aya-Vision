@@ -6,9 +6,10 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
-import { Mic, Send, Trash } from "lucide-react";
+import { Mic, Send, Trash, Loader2 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
+import { streamAudioForTranscription, transcribeAudioFile } from "../lib/api";
 
 let recorder;
 let recordingChunks = [];
@@ -60,6 +61,7 @@ export const AudioRecorderWithSTT = ({
   });
   const canvasRef = useRef(null);
   const animationRef = useRef(null);
+  const audioChunksRef = useRef([]);
 
   // Speech recognition setup
   const recognitionRef = useRef(null);
@@ -102,6 +104,8 @@ export const AudioRecorderWithSTT = ({
   function startRecording() {
     if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
       setTranscript("");
+      audioChunksRef.current = []; // Reset audio chunks
+      
       navigator.mediaDevices
         .getUserMedia({
           audio: true,
@@ -117,34 +121,32 @@ export const AudioRecorderWithSTT = ({
           const AudioContext = window.AudioContext || window.webkitAudioContext;
           const audioCtx = new AudioContext();
           const analyser = audioCtx.createAnalyser();
+          analyser.fftSize = 2048;
           const source = audioCtx.createMediaStreamSource(stream);
           source.connect(analyser);
+          
           mediaRecorderRef.current = {
             stream,
             analyser,
-            mediaRecorder: null,
             audioContext: audioCtx,
           };
 
-          const mimeType = MediaRecorder.isTypeSupported("audio/mpeg")
-            ? "audio/mpeg"
-            : MediaRecorder.isTypeSupported("audio/webm")
+          // ============ Recording ============
+          const mimeType = MediaRecorder.isTypeSupported("audio/webm")
             ? "audio/webm"
             : "audio/wav";
 
           const options = { mimeType };
-          mediaRecorderRef.current.mediaRecorder = new MediaRecorder(
-            stream,
-            options
-          );
-          mediaRecorderRef.current.mediaRecorder.start();
-          recordingChunks = [];
-          // ============ Recording ============
-          recorder = new MediaRecorder(stream);
-          recorder.start();
+          recorder = new MediaRecorder(stream, options);
+          mediaRecorderRef.current.mediaRecorder = recorder;
+          
           recorder.ondataavailable = (e) => {
-            recordingChunks.push(e.data);
+            if (e.data.size > 0) {
+              audioChunksRef.current.push(e.data);
+            }
           };
+          
+          recorder.start(100); // Collect data every 100ms
         })
         .catch((error) => {
           alert("Microphone access error: " + error.message);
@@ -155,7 +157,7 @@ export const AudioRecorderWithSTT = ({
     }
   }
   
-  function stopRecording() {
+  async function stopRecording() {
     setIsProcessing(true);
     
     // Stop speech recognition
@@ -163,19 +165,29 @@ export const AudioRecorderWithSTT = ({
       recognitionRef.current.stop();
     }
     
+    // Create a promise to ensure we get the final chunk of audio
+    let finalChunkPromise = null;
+    
     // Stop the media recorder
     if (recorder && recorder.state !== 'inactive') {
-      recorder.stop();
+      finalChunkPromise = new Promise((resolve) => {
+        recorder.onstop = () => resolve();
+        recorder.stop();
+      });
+    }
+    
+    // Wait for final audio chunk if needed
+    if (finalChunkPromise) {
+      await finalChunkPromise;
     }
     
     // Stop all tracks in the stream
-    const { stream } = mediaRecorderRef.current;
+    const { stream, analyser, audioContext } = mediaRecorderRef.current;
     if (stream) {
       stream.getTracks().forEach(track => track.stop());
     }
     
     // Clean up the audio context
-    const { audioContext, analyser } = mediaRecorderRef.current;
     if (analyser) {
       analyser.disconnect();
     }
@@ -187,12 +199,42 @@ export const AudioRecorderWithSTT = ({
     setTimer(0);
     clearTimeout(timerTimeout);
     
-    // Complete the transcription process
-    setTimeout(() => {
-      onTranscriptionComplete(transcript);
+    try {
+      let finalTranscript = transcript;
+      
+      // If we have a transcript from Web Speech API, use it
+      if (!finalTranscript.trim() && audioChunksRef.current.length > 0) {
+        // If no transcript from speech recognition, try backend transcription
+        try {
+          // Combine all audio chunks into a single blob
+          const audioBlob = new Blob(audioChunksRef.current, { 
+            type: recorder.mimeType || 'audio/webm' 
+          });
+          
+          // Convert blob to arrayBuffer for streaming API
+          const arrayBuffer = await audioBlob.arrayBuffer();
+          
+          // Call backend for transcription
+          finalTranscript = await streamAudioForTranscription(arrayBuffer);
+          
+          // If streaming fails, try the non-streaming endpoint
+          if (!finalTranscript) {
+            finalTranscript = await transcribeAudioFile(audioBlob);
+          }
+        } catch (error) {
+          console.error("Error processing audio:", error);
+        }
+      }
+      
+      if (finalTranscript && finalTranscript.trim()) {
+        onTranscriptionComplete(finalTranscript);
+      } else {
+        alert("Sorry, I couldn't understand what you said. Please try again.");
+      }
+    } finally {
       setIsProcessing(false);
       onClose();
-    }, 500);
+    }
   }
   
   function resetRecording() {
@@ -222,6 +264,7 @@ export const AudioRecorderWithSTT = ({
     setTranscript("");
     setTimer(0);
     clearTimeout(timerTimeout);
+    audioChunksRef.current = [];
 
     // Clear the animation frame and canvas
     cancelAnimationFrame(animationRef.current || 0);
@@ -250,7 +293,7 @@ export const AudioRecorderWithSTT = ({
 
   // Visualizer
   useEffect(() => {
-    if (!canvasRef.current) return;
+    if (!canvasRef.current || !isRecording) return;
 
     const canvas = canvasRef.current;
     const canvasCtx = canvas.getContext("2d");
@@ -276,16 +319,9 @@ export const AudioRecorderWithSTT = ({
     };
 
     const visualizeVolume = () => {
-      if (
-        !mediaRecorderRef.current?.stream?.getAudioTracks()[0]?.getSettings()
-          .sampleRate
-      )
-        return;
-      
       const analyser = mediaRecorderRef.current.analyser;
       if (!analyser) return;
       
-      analyser.fftSize = 2048;
       const bufferLength = analyser.frequencyBinCount;
       const dataArray = new Uint8Array(bufferLength);
 
@@ -303,14 +339,7 @@ export const AudioRecorderWithSTT = ({
       draw();
     };
 
-    if (isRecording) {
-      visualizeVolume();
-    } else {
-      if (canvasCtx) {
-        canvasCtx.clearRect(0, 0, WIDTH, HEIGHT);
-      }
-      cancelAnimationFrame(animationRef.current || 0);
-    }
+    visualizeVolume();
 
     return () => {
       cancelAnimationFrame(animationRef.current || 0);
@@ -442,7 +471,10 @@ export const AudioRecorderWithSTT = ({
         </div>
         
         {isProcessing && (
-          <div className="text-sm text-gray-500">Processing...</div>
+          <div className="flex items-center justify-center gap-2 text-sm text-gray-500">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Processing...
+          </div>
         )}
       </div>
     </div>
