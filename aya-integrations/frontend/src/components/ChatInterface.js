@@ -339,7 +339,7 @@ export default function ChatInterface() {
             </div>
             
             {isRecording ? (
-              <div className="w-full relative">
+              <div className="w-8/10 relative m-auto">
                 {/* Audio Recording UI */}
                 <div className="w-full h-12 bg-white border rounded-full overflow-hidden px-4 py-2 flex items-center gap-2">
                   {/* Recording indicator */}
