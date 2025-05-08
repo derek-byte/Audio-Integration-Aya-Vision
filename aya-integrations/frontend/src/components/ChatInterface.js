@@ -3,11 +3,11 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Mic, Camera, Send, Square, Loader2 } from "lucide-react";
+import { Mic, Camera, Send, Square, Loader2, Volume2, VolumeX } from "lucide-react";
 import CameraCapture from "./CameraCapture"; 
 import { cn } from "@/lib/utils";
 import { useTheme } from "next-themes";
-import { getAyaResponse, streamAudioForTranscription } from "../lib/api"; // Import our API service
+import { getAyaResponse, streamAudioForTranscription, playResponseAudio } from "../lib/api"; // Updated import
 
 export default function ChatInterface() {
   const [messages, setMessages] = useState([
@@ -23,7 +23,9 @@ export default function ChatInterface() {
   const [capturedImage, setCapturedImage] = useState(null);
   const [transcript, setTranscript] = useState("");
   const [timer, setTimer] = useState(0);
-  const [isProcessing, setIsProcessing] = useState(false); // New state for API call processing
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [audioEnabled, setAudioEnabled] = useState(true); // New state for TTS toggle
+  const [currentAudio, setCurrentAudio] = useState(null); // Track current audio player
   const messagesEndRef = useRef(null);
   const canvasRef = useRef(null);
   const animationRef = useRef(null);
@@ -108,6 +110,16 @@ export default function ChatInterface() {
     }));
   };
 
+  // Stop any playing audio when component unmounts
+  useEffect(() => {
+    return () => {
+      if (currentAudio) {
+        currentAudio.pause();
+        currentAudio.src = '';
+      }
+    };
+  }, []);
+
   const handleSendMessage = async (e) => {
     e?.preventDefault();
     if ((input.trim() === "" && transcript.trim() === "") && !capturedImage) return;
@@ -126,11 +138,17 @@ export default function ChatInterface() {
     setIsProcessing(true);
     
     try {
-      // Call our backend API, which calls Cohere Aya Vision API
+      // Stop any currently playing audio
+      if (currentAudio) {
+        currentAudio.pause();
+      }
+      
+      // Call backend API with TTS flag based on user preference
       const response = await getAyaResponse(
         messageContent,
         formatMessagesForApi(),
-        capturedImage
+        capturedImage,
+        audioEnabled // Send the audio preference
       );
       
       // Add the response to chat
@@ -139,9 +157,29 @@ export default function ChatInterface() {
         {
           isBot: true,
           content: response.response,
-          messageId: response.message_id
+          messageId: response.message_id,
+          audioUrl: response.audio_url // Store audio URL with message
         }
       ]);
+      
+      // Play audio if enabled and URL is available
+      if (audioEnabled && response.audio_url) {
+        const audio = new Audio(response.audio_url);
+        setCurrentAudio(audio);
+        
+        audio.onended = () => {
+          setCurrentAudio(null);
+        };
+        
+        audio.onerror = (e) => {
+          console.error("Audio playback error:", e);
+          setCurrentAudio(null);
+        };
+        
+        audio.play().catch(error => {
+          console.error('Error playing audio:', error);
+        });
+      }
     } catch (error) {
       console.error("Error getting response:", error);
       // Show error message to user
@@ -311,6 +349,41 @@ export default function ChatInterface() {
     }
   };
 
+  // Function to toggle text-to-speech
+  const toggleAudio = () => {
+    // If turning off, stop any currently playing audio
+    if (audioEnabled && currentAudio) {
+      currentAudio.pause();
+      setCurrentAudio(null);
+    }
+    setAudioEnabled(!audioEnabled);
+  };
+
+  // Function to replay the most recent bot message audio
+  const replayLastAudio = () => {
+    // Find the most recent bot message with audio
+    const lastBotMessageWithAudio = [...messages].reverse().find(msg => msg.isBot && msg.audioUrl);
+    
+    if (lastBotMessageWithAudio && lastBotMessageWithAudio.audioUrl) {
+      // Stop any currently playing audio
+      if (currentAudio) {
+        currentAudio.pause();
+      }
+      
+      // Play the audio
+      const audio = new Audio(lastBotMessageWithAudio.audioUrl);
+      setCurrentAudio(audio);
+      
+      audio.onended = () => {
+        setCurrentAudio(null);
+      };
+      
+      audio.play().catch(error => {
+        console.error('Error playing audio:', error);
+      });
+    }
+  };
+
   // Audio visualization
   useEffect(() => {
     if (!canvasRef.current || !isRecording) return;
@@ -385,6 +458,23 @@ export default function ChatInterface() {
                 </div>
               )}
               <p className="whitespace-pre-wrap">{message.content}</p>
+              
+              {/* Audio controls for bot messages with audio URLs */}
+              {message.isBot && message.audioUrl && (
+                <div className="mt-2 text-right">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="text-gray-500 hover:text-gray-700"
+                    onClick={() => playResponseAudio(message.audioUrl)}
+                  >
+                    <span className="sr-only">Play audio</span>
+                    <Volume2 className="h-4 w-4 mr-1" />
+                    <span className="text-xs">Listen</span>
+                  </Button>
+                </div>
+              )}
             </div>
           </div>
         ))}
@@ -419,7 +509,30 @@ export default function ChatInterface() {
 
       {/* Input area */}
       <div className="absolute bottom-0 left-0 right-0 p-4 border-t bg-white">
-        <form onSubmit={handleSendMessage} className="relative max-w-3/5 mx-auto">
+        {/* Audio toggle button */}
+        <div className="flex justify-end max-w-3xl mx-auto mb-2 pr-2">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className={`text-sm flex items-center gap-1 ${audioEnabled ? 'text-blue-500' : 'text-gray-500'}`}
+            onClick={toggleAudio}
+          >
+            {audioEnabled ? (
+              <>
+                <Volume2 className="h-4 w-4" />
+                <span>TTS Enabled</span>
+              </>
+            ) : (
+              <>
+                <VolumeX className="h-4 w-4" />
+                <span>TTS Disabled</span>
+              </>
+            )}
+          </Button>
+        </div>
+        
+        <form onSubmit={handleSendMessage} className="relative max-w-3xl mx-auto">
           <div className="flex items-center">
             <div className="absolute left-3 flex gap-2 z-10">
               <Button
