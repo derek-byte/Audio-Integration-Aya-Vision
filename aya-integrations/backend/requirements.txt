@@ -19,3 +19,4 @@ setuptools
 wheel
 accelerate
 faster-whisper
+python-dotenv

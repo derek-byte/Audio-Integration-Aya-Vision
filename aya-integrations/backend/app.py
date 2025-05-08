@@ -1,4 +1,3 @@
-# app.py
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_sock import Sock
@@ -15,9 +14,15 @@ import torchaudio
 import numpy as np
 import threading
 import struct
+import requests
 from faster_whisper import WhisperModel
-
+from dotenv import load_dotenv
 from preprocessing_noisy_audio import noise_reduction_with_estimation, apply_vad
+
+load_dotenv()
+
+# Load environment variables for Cohere API
+COHERE_API_KEY = os.getenv("COHERE_API_KEY")
 
 app = Flask(__name__)
 CORS(app, resources={
@@ -88,7 +93,6 @@ def stream_audio(ws):
                     
                     # Process with your STT model
                     transcription = process_audio(audio_bytes, session_id)
-                    print("TRANSCRIPTION", transcription)
                     
                     # Only send back if there's actual transcription
                     if transcription:
@@ -133,6 +137,80 @@ def transcribe():
         # Clean up temporary file
         if os.path.exists(temp_file_path):
             os.remove(temp_file_path)
+
+@app.route('/aya-response', methods=['POST'])
+def get_aya_response():
+    """
+    Endpoint to send transcribed text to Cohere's Aya Vision API and return the response
+    """
+    # if not COHERE_API_KEY:
+    #     return jsonify({'error': 'COHERE_API_KEY not configured'}), 500
+        
+    try:
+        # Get request data
+        data = request.json
+        if not data or 'message' not in data:
+            return jsonify({'error': 'No message provided'}), 400
+            
+        user_message = data['message']
+        chat_history = data.get('chatHistory', [])
+        image_data = data.get('image')  # Optional image data in base64
+        
+        # Configure Aya Vision API request
+        headers = {
+            'Authorization': f'Bearer {COHERE_API_KEY}',
+            'Content-Type': 'application/json'
+        }
+        
+        # Prepare request body
+        api_request = {
+            "message": user_message,
+            "chat_history": format_chat_history(chat_history)
+        }
+        
+        # Add image if provided
+        if image_data:
+            api_request["attachments"] = [{"source": {"type": "base64", "media_type": "image/jpeg", "data": image_data}}]
+        
+        # Call Cohere API
+        response = requests.post(
+            'https://api.cohere.ai/v1/chat',
+            headers=headers,
+            json=api_request
+        )
+        
+        # Ensure the request was successful
+        response.raise_for_status()
+        
+        # Parse the response
+        result = response.json()
+        
+        return jsonify({
+            'response': result.get('text', ''),
+            'message_id': result.get('message_id', '')
+        })
+        
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Error calling Cohere API: {str(e)}")
+        if hasattr(e, 'response') and e.response is not None:
+            logging.error(f"Response: {e.response.text}")
+        return jsonify({'error': f'Error from Cohere API: {str(e)}'}), 500
+    except Exception as e:
+        logging.error(f"Error in get_aya_response: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+def format_chat_history(chat_history):
+    """
+    Format chat history for Cohere API
+    """
+    formatted_history = []
+    for msg in chat_history:
+        role = "USER" if not msg.get('isBot', False) else "CHATBOT"
+        formatted_history.append({
+            "role": role,
+            "message": msg.get('content', '')
+        })
+    return formatted_history
 
 def process_audio(audio_bytes, session_id):
     """
