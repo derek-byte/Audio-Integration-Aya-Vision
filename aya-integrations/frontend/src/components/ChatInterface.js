@@ -1,11 +1,12 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Mic, Camera } from "lucide-react";
-import CameraCapture from "./CameraCapture"; // Make sure this path matches your file structure
-import { AudioRecorderWithSTT } from "./AudioRecorderWithSTT"; // Our new component
+import { Mic, Camera, Send, Square } from "lucide-react";
+import CameraCapture from "./CameraCapture"; 
+import { cn } from "@/lib/utils";
+import { useTheme } from "next-themes";
 
 export default function ChatInterface() {
   const [messages, setMessages] = useState([
@@ -17,22 +18,94 @@ export default function ChatInterface() {
   ]);
   const [input, setInput] = useState("");
   const [showCamera, setShowCamera] = useState(false);
-  const [showAudioRecorder, setShowAudioRecorder] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
   const [capturedImage, setCapturedImage] = useState(null);
+  const [transcript, setTranscript] = useState("");
+  const [timer, setTimer] = useState(0);
   const messagesEndRef = useRef(null);
+  const canvasRef = useRef(null);
+  const animationRef = useRef(null);
+  const { theme } = useTheme();
+  
+  // Audio recording references
+  const mediaRecorderRef = useRef({
+    stream: null,
+    analyser: null,
+    mediaRecorder: null,
+    audioContext: null,
+  });
+  const recognitionRef = useRef(null);
+  const timerIntervalRef = useRef(null);
+  
+  // Timer formatting
+  const hours = Math.floor(timer / 3600);
+  const minutes = Math.floor((timer % 3600) / 60);
+  const seconds = timer % 60;
+
+  // Split the hours, minutes, and seconds into individual digits
+  const [hourLeft, hourRight] = useMemo(
+    () => String(hours).padStart(2, "0").split(""),
+    [hours]
+  );
+  const [minuteLeft, minuteRight] = useMemo(
+    () => String(minutes).padStart(2, "0").split(""),
+    [minutes]
+  );
+  const [secondLeft, secondRight] = useMemo(
+    () => String(seconds).padStart(2, "0").split(""),
+    [seconds]
+  );
+
+  // Setup speech recognition
+  useEffect(() => {
+    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      recognitionRef.current = new SpeechRecognition();
+      recognitionRef.current.continuous = true;
+      recognitionRef.current.interimResults = true;
+      
+      recognitionRef.current.onresult = (event) => {
+        let interimTranscript = '';
+        let finalTranscript = '';
+        
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            finalTranscript += event.results[i][0].transcript;
+          } else {
+            interimTranscript += event.results[i][0].transcript;
+          }
+        }
+        
+        setTranscript(finalTranscript || interimTranscript);
+      };
+      
+      recognitionRef.current.onerror = (event) => {
+        console.error('Speech recognition error', event.error);
+      };
+    }
+    
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+    };
+  }, []);
 
   const handleSendMessage = (e) => {
     e?.preventDefault();
-    if (input.trim() === "" && !capturedImage) return;
+    if ((input.trim() === "" && transcript.trim() === "") && !capturedImage) return;
+    
+    const messageContent = input || transcript;
     
     const newMessage = {
       isBot: false, 
-      content: input,
+      content: messageContent,
       image: capturedImage
     };
     
     setMessages([...messages, newMessage]);
     setInput("");
+    setTranscript("");
     setCapturedImage(null);
     
     // In a real app, you would call an API here to get the bot's response
@@ -47,17 +120,156 @@ export default function ChatInterface() {
     }, 1000);
   };
 
-  // Handle speech to text completion
-  const handleTranscriptionComplete = (transcript) => {
-    if (transcript.trim()) {
-      setInput(transcript);
-      
-      // If you want to auto-send the message after transcription:
-      setTimeout(() => {
-        handleSendMessage();
-      }, 100);
+  const startRecording = () => {
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      setTranscript("");
+      navigator.mediaDevices
+        .getUserMedia({
+          audio: true,
+        })
+        .then((stream) => {
+          setIsRecording(true);
+          
+          // Start speech recognition
+          if (recognitionRef.current) {
+            recognitionRef.current.start();
+          }
+          
+          // Start timer
+          timerIntervalRef.current = setInterval(() => {
+            setTimer(prev => prev + 1);
+          }, 1000);
+          
+          // Setup audio analysis
+          const AudioContext = window.AudioContext || window.webkitAudioContext;
+          const audioCtx = new AudioContext();
+          const analyser = audioCtx.createAnalyser();
+          analyser.fftSize = 2048;
+          
+          const source = audioCtx.createMediaStreamSource(stream);
+          source.connect(analyser);
+          
+          mediaRecorderRef.current = {
+            stream,
+            analyser,
+            audioContext: audioCtx,
+            mediaRecorder: new MediaRecorder(stream),
+          };
+          
+          mediaRecorderRef.current.mediaRecorder.start();
+        })
+        .catch((error) => {
+          alert("Microphone access error: " + error.message);
+          console.log(error);
+        });
+    } else {
+      alert("Your browser doesn't support microphone access.");
     }
   };
+
+  const stopRecording = () => {
+    // Stop speech recognition
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+    }
+    
+    // Stop timer
+    clearInterval(timerIntervalRef.current);
+    setTimer(0);
+    
+    // Stop all media tracks
+    const { stream, analyser, audioContext, mediaRecorder } = mediaRecorderRef.current;
+    
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      mediaRecorder.stop();
+    }
+    
+    if (analyser) {
+      analyser.disconnect();
+    }
+    
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+    }
+    
+    if (audioContext && audioContext.state !== 'closed') {
+      audioContext.close();
+    }
+    
+    setIsRecording(false);
+    
+    // Clean up animation
+    cancelAnimationFrame(animationRef.current || 0);
+    const canvas = canvasRef.current;
+    if (canvas) {
+      const canvasCtx = canvas.getContext("2d");
+      if (canvasCtx) {
+        const WIDTH = canvas.width;
+        const HEIGHT = canvas.height;
+        canvasCtx.clearRect(0, 0, WIDTH, HEIGHT);
+      }
+    }
+    
+    // Set the transcript to input if available
+    if (transcript.trim()) {
+      setInput(transcript);
+    }
+  };
+
+  // Audio visualization
+  useEffect(() => {
+    if (!canvasRef.current || !isRecording) return;
+
+    const canvas = canvasRef.current;
+    const canvasCtx = canvas.getContext("2d");
+    const WIDTH = canvas.width;
+    const HEIGHT = canvas.height;
+
+    const drawWaveform = (dataArray) => {
+      if (!canvasCtx) return;
+      canvasCtx.clearRect(0, 0, WIDTH, HEIGHT);
+      canvasCtx.fillStyle = "#939393";
+
+      const barWidth = 1;
+      const spacing = 1;
+      const maxBarHeight = HEIGHT / 2.5;
+      const numBars = Math.floor(WIDTH / (barWidth + spacing));
+
+      for (let i = 0; i < numBars; i++) {
+        const barHeight = Math.pow(dataArray[i] / 128.0, 8) * maxBarHeight;
+        const x = (barWidth + spacing) * i;
+        const y = HEIGHT / 2 - barHeight / 2;
+        canvasCtx.fillRect(x, y, barWidth, barHeight);
+      }
+    };
+
+    const visualizeVolume = () => {
+      const analyser = mediaRecorderRef.current.analyser;
+      if (!analyser) return;
+      
+      const bufferLength = analyser.frequencyBinCount;
+      const dataArray = new Uint8Array(bufferLength);
+
+      const draw = () => {
+        if (!isRecording) {
+          cancelAnimationFrame(animationRef.current || 0);
+          return;
+        }
+        
+        animationRef.current = requestAnimationFrame(draw);
+        analyser.getByteTimeDomainData(dataArray);
+        drawWaveform(dataArray);
+      };
+
+      draw();
+    };
+
+    visualizeVolume();
+
+    return () => {
+      cancelAnimationFrame(animationRef.current || 0);
+    };
+  }, [isRecording]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -93,16 +305,6 @@ export default function ChatInterface() {
         />
       )}
 
-      {/* Audio recorder/STT overlay */}
-      {showAudioRecorder && (
-        <div className="absolute bottom-24 left-0 right-0 flex justify-center z-20">
-          <AudioRecorderWithSTT 
-            onTranscriptionComplete={handleTranscriptionComplete}
-            onClose={() => setShowAudioRecorder(false)}
-          />
-        </div>
-      )}
-
       {/* Preview captured image */}
       {capturedImage && (
         <div className="absolute bottom-24 left-0 right-0 flex justify-center">
@@ -129,31 +331,78 @@ export default function ChatInterface() {
                 size="icon"
                 className="text-gray-500 hover:text-gray-700"
                 onClick={() => setShowCamera(true)}
+                disabled={isRecording}
               >
                 <span className="sr-only">Take photo</span>
                 <Camera className="h-5 w-5" />
               </Button>
             </div>
             
-            <Input
-              type="text"
-              placeholder="Ask Aya Vision"
-              className="w-full pr-24 pl-12 py-6 border rounded-full bg-white"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-            />
+            {isRecording ? (
+              <div className="w-full relative">
+                {/* Audio Recording UI */}
+                <div className="w-full h-12 bg-white border rounded-full overflow-hidden px-4 py-2 flex items-center gap-2">
+                  {/* Recording indicator */}
+                  <div className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+                  
+                  {/* Timer */}
+                  <div className="text-xs font-mono text-gray-500">
+                    {`${hourLeft}${hourRight}:${minuteLeft}${minuteRight}:${secondLeft}${secondRight}`}
+                  </div>
+                  
+                  {/* Visualizer */}
+                  <div className="flex-1 h-full relative">
+                    <canvas 
+                      ref={canvasRef} 
+                      className="w-full h-full" 
+                      width="300" 
+                      height="48"
+                    />
+                  </div>
+                  
+                  {/* Live transcript */}
+                  {transcript && (
+                    <div className="max-w-sm truncate text-sm ml-2">
+                      {transcript}
+                    </div>
+                  )}
+                  
+                  {/* Stop button */}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="text-gray-500 hover:text-gray-700"
+                    onClick={stopRecording}
+                  >
+                    <span className="sr-only">Stop recording</span>
+                    <Square className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <Input
+                type="text"
+                placeholder="Ask Aya Vision"
+                className="w-full pr-24 pl-12 py-6 border rounded-full bg-white"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+              />
+            )}
             
             <div className="absolute right-3 top-1/2 transform -translate-y-1/2 flex gap-2">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="text-gray-500 hover:text-gray-700"
-                onClick={() => setShowAudioRecorder(!showAudioRecorder)}
-              >
-                <span className="sr-only">Use microphone</span>
-                <Mic className="h-5 w-5" />
-              </Button>
+              {!isRecording && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="text-gray-500 hover:text-gray-700"
+                  onClick={startRecording}
+                >
+                  <span className="sr-only">Use microphone</span>
+                  <Mic className="h-5 w-5" />
+                </Button>
+              )}
               <Button
                 type="submit"
                 variant="ghost"
@@ -161,9 +410,7 @@ export default function ChatInterface() {
                 className="text-gray-500 hover:text-gray-700"
               >
                 <span className="sr-only">Send</span>
-                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M5 12H19M19 12L12 5M19 12L12 19" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
+                <Send className="h-5 w-5" />
               </Button>
             </div>
           </div>
