@@ -26,3 +26,12 @@ def save_audio_file(file_data: bytes, extension="wav") -> str:
         f.write(file_data)
     
     return file_path
+
+
+def save_waveform(waveform, sample_rate=16000, output_dir="generated_audios"):
+    import torchaudio
+    os.makedirs(output_dir, exist_ok=True)
+    audio_id = str(uuid.uuid4())
+    audio_path = os.path.abspath(os.path.join(output_dir, f"{audio_id}.wav"))
+    torchaudio.save(audio_path, waveform, sample_rate)
+    return audio_path
