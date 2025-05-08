@@ -8,7 +8,7 @@
 
 :root {
   --foreground-rgb: 0, 0, 0;
-  --background-rgb: 244, 244, 245;
+  --background-rgb: 255, 255, 255;
   --radius: 0.625rem;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
@@ -46,6 +46,8 @@
 body {
   background: rgb(var(--background-rgb));
   min-height: 100vh;
+  margin: 0;
+  padding: 0;
 }
 /* :root {
   --background: #ffffff;
