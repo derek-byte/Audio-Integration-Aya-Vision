@@ -551,17 +551,16 @@ export default function ChatInterface() {
       {/* Chat messages area - improved with fixed height and overflow handling */}
       <div 
         ref={messageContainerRef}
-        className="flex-1 overflow-y-auto px-4 pb-32 pt-4 max-w-5xl mx-auto w-full"
-        style={{ height: "calc(100vh - 80px)" }}
+        className="flex-1 px-4 pb-36 pt-4 max-w-5xl mx-auto w-full"
       >
         <div className="flex flex-col gap-6">
           {messages.map((message, index) => (
             <div key={index} className={`flex ${message.isBot ? "" : "justify-end"}`}>
               <div 
-                className={`max-w-3xl rounded-2xl px-4 py-3 ${
+                className={`max-w-3xl px-4 py-3 ${
                   message.isBot 
-                    ? "bg-gray-100" 
-                    : "bg-orange-400 text-white rounded-xl"
+                    ? "border-b border-gray-200 pb-6" 
+                    : "bg-orange-400 text-white rounded-2xl"
                 }`}
               >
                 {message.image && (
