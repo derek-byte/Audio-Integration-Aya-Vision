@@ -35,3 +35,36 @@ def transcribe(audio_path, model="whisper", model_size="base"):
     
     else:
         raise ValueError ("Unspported model selected")
+    
+import os
+
+def ensure_model_downloaded():
+    from huggingface_hub import snapshot_download
+
+    local_model_dir = "mms-tts-eng"
+    if not os.path.exists(local_model_dir) or not os.listdir(local_model_dir):
+        print("Model not found locally. Downloading from Hugging Face...")
+        snapshot_download(
+            repo_id="facebook/mms-tts-eng",
+            local_dir=local_model_dir,
+            local_dir_use_symlinks=False,
+        )
+    return local_model_dir
+
+def load_model_and_tokenizer():
+    from transformers import VitsTokenizer, VitsModel
+
+    model_path = ensure_model_downloaded()
+    tokenizer = VitsTokenizer.from_pretrained(model_path)
+    model = VitsModel.from_pretrained(model_path)
+    model.eval()
+    return tokenizer, model
+
+def synthesize_speech(text, tokenizer, model):
+    import torch
+
+    inputs = tokenizer(text, return_tensors="pt")
+    with torch.no_grad():
+        outputs = model(**inputs)
+        waveform = outputs.waveform[0].unsqueeze(0)
+    return waveform
