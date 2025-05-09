@@ -3,11 +3,29 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Mic, Camera, Send, Square, Loader2, Volume2, VolumeX } from "lucide-react";
+import { Mic, Camera, Send, Square, Loader2, Volume2, VolumeX, Settings } from "lucide-react";
 import CameraCapture from "./CameraCapture"; 
 import { cn } from "@/lib/utils";
 import { useTheme } from "next-themes";
-import { getAyaResponse, streamAudioForTranscription, playResponseAudio } from "../lib/api"; // Updated import
+import { 
+  getAyaResponse, 
+  streamAudioForTranscription, 
+  playResponseAudio, 
+  getAvailableModels,
+  setTranscriptionModel
+} from "../lib/api";
+
+// Import shadcn Drawer components
+import {
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerDescription,
+  DrawerFooter,
+  DrawerHeader,
+  DrawerTitle,
+  DrawerTrigger,
+} from "@/components/ui/drawer";
 
 export default function ChatInterface() {
   const [messages, setMessages] = useState([
@@ -24,8 +42,15 @@ export default function ChatInterface() {
   const [transcript, setTranscript] = useState("");
   const [timer, setTimer] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [audioEnabled, setAudioEnabled] = useState(true); // New state for TTS toggle
+  const [audioEnabled, setAudioEnabled] = useState(true); // For TTS toggle
   const [currentAudio, setCurrentAudio] = useState(null); // Track current audio player
+  
+  // Model selection states
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [availableModels, setAvailableModels] = useState([]);
+  const [currentModel, setCurrentModel] = useState("");
+  const [loadingModels, setLoadingModels] = useState(false);
+  
   const messagesEndRef = useRef(null);
   const canvasRef = useRef(null);
   const animationRef = useRef(null);
@@ -65,6 +90,49 @@ export default function ChatInterface() {
     () => String(seconds).padStart(2, "0").split(""),
     [seconds]
   );
+
+  // Fetch available models on component mount
+  useEffect(() => {
+    fetchAvailableModels();
+  }, []);
+
+  // Function to fetch available transcription models
+  const fetchAvailableModels = async () => {
+    try {
+      setLoadingModels(true);
+      const modelData = await getAvailableModels();
+      setAvailableModels(modelData.models || []);
+      setCurrentModel(modelData.current_model || "faster_whisper");
+      setLoadingModels(false);
+    } catch (error) {
+      console.error("Error fetching models:", error);
+      setLoadingModels(false);
+    }
+  };
+
+  // Function to change the active transcription model
+  const handleModelChange = async (modelName) => {
+    try {
+      setLoadingModels(true);
+      const result = await setTranscriptionModel(modelName);
+      if (result.success) {
+        setCurrentModel(modelName);
+        // Add system message about model change
+        setMessages(prev => [
+          ...prev,
+          {
+            isBot: true,
+            content: `Transcription model changed to ${modelName}.`
+          }
+        ]);
+      }
+      setLoadingModels(false);
+      setDrawerOpen(false); // Close drawer after changing model
+    } catch (error) {
+      console.error("Error changing model:", error);
+      setLoadingModels(false);
+    }
+  };
 
   // Setup speech recognition
   useEffect(() => {
@@ -327,8 +395,8 @@ export default function ChatInterface() {
         // Convert blob to arrayBuffer
         const arrayBuffer = await audioBlob.arrayBuffer();
         
-        // Call our backend service to get transcription
-        const result = await streamAudioForTranscription(arrayBuffer);
+        // Call our backend service to get transcription using the current model
+        const result = await streamAudioForTranscription(arrayBuffer, currentModel);
         
         if (result && result.trim()) {
           // Use the transcription as input
@@ -507,10 +575,85 @@ export default function ChatInterface() {
         </div>
       )}
 
+      {/* Settings Drawer */}
+      <Drawer open={drawerOpen} onOpenChange={setDrawerOpen}>
+        <DrawerContent>
+          <div className="mx-auto w-full max-w-sm">
+            <DrawerHeader>
+              <DrawerTitle>Settings</DrawerTitle>
+              <DrawerDescription>
+                Configure transcription and audio settings
+              </DrawerDescription>
+            </DrawerHeader>
+            
+            <div className="p-4 pb-0">
+              <div className="mb-6">
+                <h4 className="font-medium mb-2 text-sm">Transcription Model</h4>
+                <div className="flex flex-wrap gap-2">
+                  {loadingModels ? (
+                    <div className="flex items-center">
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      <span>Loading models...</span>
+                    </div>
+                  ) : (
+                    availableModels.map(model => (
+                      <Button
+                        key={model}
+                        variant={model === currentModel ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => handleModelChange(model)}
+                        disabled={loadingModels}
+                      >
+                        {model}
+                      </Button>
+                    ))
+                  )}
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  Current model: <span className="font-medium">{currentModel}</span>
+                </p>
+              </div>
+              
+              <div className="mb-6">
+                <h4 className="font-medium mb-2 text-sm">Text-to-Speech</h4>
+                <Button
+                  variant={audioEnabled ? "default" : "outline"}
+                  size="sm"
+                  onClick={toggleAudio}
+                >
+                  {audioEnabled ? (
+                    <><Volume2 className="h-4 w-4 mr-1" /> Enabled</>
+                  ) : (
+                    <><VolumeX className="h-4 w-4 mr-1" /> Disabled</>
+                  )}
+                </Button>
+              </div>
+            </div>
+            
+            <DrawerFooter>
+              <DrawerClose asChild>
+                <Button variant="outline">Close</Button>
+              </DrawerClose>
+            </DrawerFooter>
+          </div>
+        </DrawerContent>
+      </Drawer>
+
       {/* Input area */}
       <div className="absolute bottom-0 left-0 right-0 p-4 border-t bg-white">
-        {/* Audio toggle button */}
-        <div className="flex justify-end max-w-3xl mx-auto mb-2 pr-2">
+        {/* Audio toggle and Settings buttons */}
+        <div className="flex justify-between max-w-3xl mx-auto mb-2 px-2">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="text-sm flex items-center gap-1 text-gray-500"
+            onClick={() => setDrawerOpen(true)}
+          >
+            <Settings className="h-4 w-4" />
+            <span>Settings</span>
+          </Button>
+
           <Button
             type="button"
             variant="ghost"

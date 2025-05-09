@@ -23,3 +23,7 @@ python-dotenv
 transformers
 sentencepiece
 gtts
+simuleval 
+whisper 
+nemo
+openai_whisper
