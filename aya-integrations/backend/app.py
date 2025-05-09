@@ -297,55 +297,68 @@ def serve_audio(filename):
 @app.route('/aya-response', methods=['POST'])
 def get_aya_response():
     """
-    Endpoint to send transcribed text to Cohere's Aya Vision API and return the response
+    Endpoint to send transcribed text and optional image to Cohere's Aya Vision API and return the response
     """
     if not COHERE_API_KEY:
         return jsonify({'error': 'COHERE_API_KEY not configured'}), 500
-        
+
     try:
-        # Get request data
         data = request.json
         if not data or 'message' not in data:
             return jsonify({'error': 'No message provided'}), 400
-            
+
         user_message = data['message']
-        chat_history = data.get('chatHistory', [])
-        image_data = data.get('image')  # Optional image data in base64
-        
-        # Configure Aya Vision API request
-        headers = {
-            'Authorization': f'Bearer {COHERE_API_KEY}',
-            'Content-Type': 'application/json'
-        }
-        
-        # Prepare request body
-        api_request = {
-            "message": user_message,
-            "chat_history": format_chat_history(chat_history)
-        }
-        
-        # Add image if provided
+        image_data = data.get('image')  # Optional base64 JPEG image
+
+        # Build the message content list
+        content = [{"type": "text", "text": user_message}]
         if image_data:
-            api_request["attachments"] = [{"source": {"type": "base64", "media_type": "image/jpeg", "data": image_data}}]
-        
-        # Call Cohere API
+            content.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/jpeg;base64,{image_data}"
+                }
+            })
+
+        # Construct the request payload
+        payload = {
+            "model": "c4ai-aya-vision-32b",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": content
+                }
+            ]
+        }
+
+        headers = {
+            "Authorization": f"Bearer {COHERE_API_KEY}",
+            "Content-Type": "application/json"
+        }
+
         response = requests.post(
-            'https://api.cohere.ai/v1/chat',
+            "https://api.cohere.ai/v2/chat",
             headers=headers,
-            json=api_request
+            json=payload
         )
-        
-        # Ensure the request was successful
+
         response.raise_for_status()
-        
-        # Parse the response
         result = response.json()
-        
+
+        # Extract text response from result
+        text_response = ""
+        if "text" in result:
+            text_response = result["text"]
+        elif "message" in result and "content" in result["message"]:
+            for item in result["message"]["content"]:
+                if item.get("type") == "text":
+                    text_response += item.get("text", "")
+
         return jsonify({
-            'response': result.get('text', ''),
+            'response': text_response,
             'message_id': result.get('message_id', '')
         })
-        
+
     except requests.exceptions.RequestException as e:
         logging.error(f"Error calling Cohere API: {str(e)}")
         if hasattr(e, 'response') and e.response is not None:
@@ -361,52 +374,72 @@ def get_aya_response_with_tts():
     """
     Enhanced endpoint that returns both Aya Vision response and synthesized speech
     """
+    if not COHERE_API_KEY:
+        return jsonify({'error': 'COHERE_API_KEY not configured'}), 500
+
     try:
-        # Get request data
         data = request.json
         if not data or 'message' not in data:
             return jsonify({'error': 'No message provided'}), 400
-            
+
         user_message = data['message']
-        chat_history = data.get('chatHistory', [])
         image_data = data.get('image')
-        
-        # Call the existing Aya Vision endpoint logic
-        headers = {
-            'Authorization': f'Bearer {COHERE_API_KEY}',
-            'Content-Type': 'application/json'
-        }
-        
-        api_request = {
-            "message": user_message,
-            "chat_history": format_chat_history(chat_history)
-        }
-        
+        chat_history = data.get('chatHistory', [])
+
+        # Format chat history into Cohere's message format
+        messages = format_chat_history(chat_history)
+        # Append current user message and optional image
+        content = [{"type": "text", "text": user_message}]
         if image_data:
-            api_request["attachments"] = [{"source": {"type": "base64", "media_type": "image/jpeg", "data": image_data}}]
-        
+            content.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/jpeg;base64,{image_data}"
+                }
+            })
+        messages.append({
+            "role": "user",
+            "content": content
+        })
+
+        payload = {
+            "model": "c4ai-aya-vision-32b",
+            "messages": messages
+        }
+
+        headers = {
+            "Authorization": f"Bearer {COHERE_API_KEY}",
+            "Content-Type": "application/json"
+        }
+
         response = requests.post(
-            'https://api.cohere.ai/v1/chat',
+            "https://api.cohere.ai/v2/chat",
             headers=headers,
-            json=api_request
+            json=payload
         )
-        
+
         response.raise_for_status()
         result = response.json()
-        text_response = result.get('text', '')
-        
-        # Generate speech for the response using gTTS
+
+        # Extract response text
+        text_response = ""
+        if "text" in result:
+            text_response = result["text"]
+        elif "message" in result and "content" in result["message"]:
+            for item in result["message"]["content"]:
+                if item.get("type") == "text":
+                    text_response += item.get("text", "")
+
+        # Generate audio
         audio_path = synthesize_speech(text_response)
-        
-        # Return both text and audio URL
         audio_url = f"http://localhost:5000/audio/{os.path.basename(audio_path)}"
-        
+
         return jsonify({
             'response': text_response,
             'message_id': result.get('message_id', ''),
             'audio_url': audio_url
         })
-        
+
     except requests.exceptions.RequestException as e:
         logging.error(f"Error calling Cohere API: {str(e)}")
         if hasattr(e, 'response') and e.response is not None:
@@ -416,18 +449,23 @@ def get_aya_response_with_tts():
         logging.error(f"Error in get_aya_response_with_tts: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+
 def format_chat_history(chat_history):
     """
-    Format chat history for Cohere API
+    Format raw chat history into list of message dicts for Cohere's /v2/chat endpoint.
+    Expects input as: [{"role": "user"/"assistant", "message": "text"}]
     """
-    formatted_history = []
-    for msg in chat_history:
-        role = "USER" if not msg.get('isBot', False) else "CHATBOT"
-        formatted_history.append({
-            "role": role,
-            "message": msg.get('content', '')
-        })
-    return formatted_history
+    formatted = []
+    for item in chat_history:
+        role = item.get("role")
+        message_text = item.get("message")
+        if role and message_text:
+            formatted.append({
+                "role": role,
+                "content": [{"type": "text", "text": message_text}]
+            })
+    return formatted
+
 
 def process_audio(audio_bytes, session_id, model_name=CURRENT_MODEL):
     """

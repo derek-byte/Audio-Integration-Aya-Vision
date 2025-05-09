@@ -3,6 +3,7 @@
 // import styles from "./page.module.css";
 import { useState, useRef, useEffect } from 'react';
 import ChatInterface from '@/components/ChatInterface';
+import { ReactTyped } from 'react-typed';
 
 export default function Home() {
   const [inputText, setInputText] = useState('');
@@ -71,12 +72,21 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-white">
       {/* header start */}
-      <header className="mb-8">
-        <h1 className="mt-[50px] text-[32px] font-bold leading-[100%] text-center text-ayaBlack font-inter">Welcome to Aya Vision</h1>
-        {/* <p className="text-center text-gray-600">Speech-to-Text and Text-to-Speech with AYA Vision</p> */}
-      </header>
+      <header className="mb-4 my-12 mx-auto flex items-center justify-center">
+      <div className="text-xl font-mono py-2 px-6">
+        <ReactTyped
+          strings={["const vision = \"aya vision\";"]}
+          typeSpeed={100}
+          backSpeed={50}
+          // loop
+          showCursor
+        />
+      </div>
+  {/* <p className="text-center text-gray-600">Speech-to-Text and Text-to-Speech with AYA Vision</p> */}
+</header>
 
-      <div className="m-auto w-3/5">
+
+      <div className="m-auto w-full max-w-3xl">
         <ChatInterface/>
       </div>
     </div>

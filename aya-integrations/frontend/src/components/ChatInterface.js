@@ -52,6 +52,7 @@ export default function ChatInterface() {
   const [loadingModels, setLoadingModels] = useState(false);
   
   const messagesEndRef = useRef(null);
+  const messageContainerRef = useRef(null);
   const canvasRef = useRef(null);
   const animationRef = useRef(null);
   const { theme } = useTheme();
@@ -188,12 +189,45 @@ export default function ChatInterface() {
     };
   }, []);
 
+  // Base64 encode image from camera
+  const getBase64FromImageUrl = async (imageUrl) => {
+    try {
+      if (!imageUrl) return null;
+      
+      // Fetch the image and convert to blob
+      const response = await fetch(imageUrl);
+      const blob = await response.blob();
+      
+      // Read the blob as Data URL (base64)
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          // Extract the base64 part from the Data URL
+          const base64String = reader.result.split(',')[1];
+          resolve(base64String);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    } catch (error) {
+      console.error("Error converting image to base64:", error);
+      return null;
+    }
+  };
+
   const handleSendMessage = async (e) => {
     e?.preventDefault();
     if ((input.trim() === "" && transcript.trim() === "") && !capturedImage) return;
     
     const messageContent = input || transcript;
     
+    // Process image if available
+    let base64Image = null;
+    if (capturedImage) {
+      base64Image = await getBase64FromImageUrl(capturedImage);
+    }
+    
+    // Add user message to chat history
     const newMessage = {
       isBot: false, 
       content: messageContent,
@@ -215,7 +249,7 @@ export default function ChatInterface() {
       const response = await getAyaResponse(
         messageContent,
         formatMessagesForApi(),
-        capturedImage,
+        base64Image, // Send base64 encoded image
         audioEnabled // Send the audio preference
       );
       
@@ -507,45 +541,58 @@ export default function ChatInterface() {
     };
   }, [isRecording]);
 
+  // Auto-scroll to bottom when messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
   return (
-    <div className="flex flex-col bg-white text-gray-800 p-6 font-sans">
-      {/* Chat messages area */}
-      <div className="flex-1 overflow-y-auto p-4 pb-24 max-w-5xl mx-auto w-full">
-        {messages.map((message, index) => (
-          <div key={index} className={`flex mb-6 ${message.isBot ? "" : "justify-end"}`}>
-            <div className={`${message.isBot 
-              ? "max-w-full px-4 py-2 rounded-2xl" 
-              : "max-w-full text-right bg-orange-400 text-white px-4 py-2 rounded-full"}`}>
-              {message.image && (
-                <div className="mb-2">
-                  <img src={message.image} alt="User uploaded" className="max-w-xs rounded" />
-                </div>
-              )}
-              <p className="whitespace-pre-wrap">{message.content}</p>
-              
-              {/* Audio controls for bot messages with audio URLs */}
-              {message.isBot && message.audioUrl && (
-                <div className="mt-2 text-right">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="text-gray-500 hover:text-gray-700"
-                    onClick={() => playResponseAudio(message.audioUrl)}
-                  >
-                    <span className="sr-only">Play audio</span>
-                    <Volume2 className="h-4 w-4 mr-1" />
-                    <span className="text-xs">Listen</span>
-                  </Button>
-                </div>
-              )}
+    <div className="flex flex-col h-screen bg-white text-gray-800 font-sans">
+      {/* Chat messages area - improved with fixed height and overflow handling */}
+      <div 
+        ref={messageContainerRef}
+        className="flex-1 px-4 pb-36 pt-4 max-w-5xl mx-auto w-full"
+      >
+        <div className="flex flex-col gap-6">
+          {messages.map((message, index) => (
+            <div key={index} className={`flex ${message.isBot ? "" : "justify-end"}`}>
+              <div 
+                className={`max-w-3xl px-4 py-3 ${
+                  message.isBot 
+                    ? "border-b border-gray-200 pb-6" 
+                    : "bg-orange-400 text-white rounded-2xl"
+                }`}
+              >
+                {message.image && (
+                  <div className="mb-3">
+                    <img 
+                      src={message.image} 
+                      alt="Uploaded" 
+                      className="max-w-xs rounded-lg shadow-sm" 
+                    />
+                  </div>
+                )}
+                <p className="whitespace-pre-wrap">{message.content}</p>
+                
+                {/* Audio controls for bot messages with audio URLs */}
+                {message.isBot && message.audioUrl && (
+                  <div className="mt-2 text-right">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="text-gray-500 hover:text-gray-700"
+                      onClick={() => playResponseAudio(message.audioUrl)}
+                    >
+                      <Volume2 className="h-4 w-4 mr-1" />
+                      <span className="text-xs">Listen</span>
+                    </Button>
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
         <div ref={messagesEndRef} />
       </div>
 
@@ -562,7 +609,7 @@ export default function ChatInterface() {
 
       {/* Preview captured image */}
       {capturedImage && (
-        <div className="absolute bottom-24 left-0 right-0 flex justify-center">
+        <div className="fixed bottom-24 left-0 right-0 flex justify-center z-10">
           <div className="bg-white p-2 rounded-lg shadow-lg">
             <img src={capturedImage} alt="Captured" className="h-24 rounded" />
             <button 
@@ -639,8 +686,8 @@ export default function ChatInterface() {
         </DrawerContent>
       </Drawer>
 
-      {/* Input area */}
-      <div className="absolute bottom-0 left-0 right-0 p-4 border-t bg-white">
+      {/* Input area - fixed at the bottom */}
+      <div className="fixed bottom-0 left-0 right-0 p-4 border-t bg-white shadow-lg">
         {/* Audio toggle and Settings buttons */}
         <div className="flex justify-between max-w-3xl mx-auto mb-2 px-2">
           <Button
@@ -692,9 +739,9 @@ export default function ChatInterface() {
             </div>
             
             {isRecording ? (
-              <div className="w-8/10 relative m-auto">
+              <div className="w-full relative m-auto">
                 {/* Audio Recording UI */}
-                <div className="w-full h-12 bg-white border rounded-full overflow-hidden px-4 py-2 flex items-center gap-2">
+                <div className="w-8/10 m-auto h-12 bg-white border rounded-full overflow-hidden px-4 py-2 flex items-center gap-2">
                   {/* Recording indicator */}
                   <div className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
                   
