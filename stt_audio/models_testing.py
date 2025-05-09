@@ -116,7 +116,7 @@ def transcribe_seamless(audio_path, reference_text, duration):
     end = time.time()
 
     print(hyp)
-    metrics = compute_metrics(reference_text, hyp, duration, end - start)
+    # metrics = compute_metrics(reference_text, hyp, duration, end - start)
     print_metrics(metrics)
 
 # ---------------- Main ----------------
