@@ -444,14 +444,14 @@ export default function ChatInterface() {
   }, [messages]);
 
   return (
-    <div className="flex flex-col h-screen bg-white text-gray-800 p-6">
+    <div className="flex flex-col bg-white text-gray-800 p-6 font-sans">
       {/* Chat messages area */}
       <div className="flex-1 overflow-y-auto p-4 pb-24 max-w-5xl mx-auto w-full">
         {messages.map((message, index) => (
           <div key={index} className={`flex mb-6 ${message.isBot ? "" : "justify-end"}`}>
             <div className={`${message.isBot 
-              ? "max-w-full bg-zinc-50 px-4 py-2 rounded-lg" 
-              : "max-w-full text-right bg-zinc-100 px-4 py-2 rounded-full"}`}>
+              ? "max-w-full px-4 py-2 rounded-2xl" 
+              : "max-w-full text-right bg-orange-400 text-white px-4 py-2 rounded-full"}`}>
               {message.image && (
                 <div className="mb-2">
                   <img src={message.image} alt="User uploaded" className="max-w-xs rounded" />
