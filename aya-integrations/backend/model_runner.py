@@ -24,6 +24,15 @@ def transcribe(audio_path, model="whisper", model_size="base"):
             return result.text
         return result # fallback if it’s already a string
     
+    elif model == "seamless":
+        from stt_audio.seamless_inference import load_model, get_seamless_default_config
+        model_config = get_seamless_default_config()
+        # uncomment the following line to modify the model_config in order to run seamless on cpu
+        # model_config["device"] = "cpu"
+        wrapper = load_model(model_config=model_config)
+        result = wrapper.transcribe_file(file_path=audio_path)
+        return result
+    
     else:
         raise ValueError ("Unspported model selected")
     
