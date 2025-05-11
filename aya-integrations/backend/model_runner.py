@@ -75,7 +75,7 @@ def synthesize_speech(text, model="groqtts", voice="Aaliyah-PlayAI", output_file
     if model == "groqtts":
         from groq import Groq
 
-        api_key = "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" #os.getenv("GROQ_API_KEY")
+        api_key = os.getenv("GROQ_API_KEY")
         if not api_key:
             raise EnvironmentError("GROQ_API_KEY not set in environment variables.")
         
