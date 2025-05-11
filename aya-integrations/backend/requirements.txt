@@ -27,3 +27,5 @@ simuleval
 whisper 
 nemo
 openai_whisper
+soundfile
+groq
