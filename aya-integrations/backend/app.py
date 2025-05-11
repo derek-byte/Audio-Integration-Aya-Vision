@@ -37,7 +37,9 @@ models = {
     "whisper": None,
     "wav2vec2": None,
     "nemo": None,
-    "seamless": None
+    "seamless": None,
+    "groqtts": None,
+    "groqasr":None
 }
 
 # Default model to use
@@ -113,6 +115,7 @@ def load_model(model_name, model_size=None):
         from models.seamless_inference import get_seamless_default_config, load_model as load_seamless_model
         logging.info("Loading Seamless model")
         models[model_name] = load_seamless_model(model_config=get_seamless_default_config())
+    
     
     return models[model_name]
 
@@ -234,23 +237,38 @@ def transcribe():
             os.remove(temp_file_path)
 
 
-def synthesize_speech(text, lang='en', slow=False):
+def synthesize_speech(text, lang='en', slow=False,  model = "groqtts"):
+
     """
     Convert text to speech using Google's Text-to-Speech API
+    
     """
-    try:
-        # Create a temporary file
-        temp_dir = tempfile.gettempdir()
-        audio_path = os.path.join(temp_dir, f"{uuid.uuid4()}.mp3")
-        
-        # Generate speech using gTTS
-        tts = gTTS(text=text, lang=lang, slow=slow)
-        tts.save(audio_path)
-        
-        return audio_path
-    except Exception as e:
-        logging.error(f"Error in synthesize_speech: {str(e)}")
-        raise
+    if model == "gtts":
+        try:
+            # Create a temporary file
+            temp_dir = tempfile.gettempdir()
+            audio_path = os.path.join(temp_dir, f"{uuid.uuid4()}.mp3")
+            
+            # Generate speech using gTTS
+            tts = gTTS(text=text, lang=lang, slow=slow)
+            tts.save(audio_path)
+            
+            return audio_path
+        except Exception as e:
+            logging.error(f"Error in synthesize_speech: {str(e)}")
+            raise
+    else:
+        try:
+            # Create a temporary file
+            temp_dir = tempfile.gettempdir()
+            audio_path = os.path.join(temp_dir, f"{uuid.uuid4()}.mp3")
+            import model_runner
+            model_runner.synthesize_speech(text, model, output_filename=audio_path)
+            return audio_path
+        except Exception as e:
+            logging.error(f"Error in synthesize_speech: {str(e)}")
+            raise
+
 
 
 @app.route('/synthesize', methods=['POST'])
@@ -262,12 +280,13 @@ def synthesize():
     text = data.get("text", "").strip()
     lang = data.get("lang", "en")
     slow = data.get("slow", False)
+    model= data.get("model", "groqtts")
 
     if not text:
         return jsonify({"error": "Text input is required"}), 400
     
     try:
-        audio_path = synthesize_speech(text, lang, slow)
+        audio_path = synthesize_speech(text, lang, slow, model)
         return send_file(audio_path, mimetype="audio/mp3", as_attachment=True, download_name="output.mp3")
     except Exception as e:
         logging.error(f"Error synthesizing speech: {str(e)}")
@@ -586,6 +605,10 @@ def process_audio_file(file_path, model_name=CURRENT_MODEL, model_size=None):
         
         elif model_name == "seamless":
             transcription = model.transcribe_file(file_path=cleaned_path)
+
+        elif model_name == "groqasr":
+            from model_runner import transcribe
+            transcription = transcribe(audio_path=cleaned_path, model="groqasr")
         
         else:
             raise ValueError(f"Unknown model: {model_name}")
