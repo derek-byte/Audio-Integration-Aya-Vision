@@ -1,4 +1,4 @@
-// api.js - Enhanced service for API calls to our backend with TTS support
+// api.js - Enhanced service for API calls to our backend with TTS and model selection support
 
 /**
  * Send transcription to backend and get Aya Vision response with speech synthesis
@@ -86,9 +86,10 @@ export const getAyaResponse = async (message, chatHistory = [], imageData = null
   /**
    * Send audio data to backend for streaming transcription
    * @param {ArrayBuffer} audioData - Raw audio data
+   * @param {string} model - The model to use for transcription
    * @returns {Promise<string>} - Transcription
    */
-  export const streamAudioForTranscription = (audioData) => {
+  export const streamAudioForTranscription = (audioData, model = 'faster_whisper') => {
     return new Promise((resolve, reject) => {
       const socket = new WebSocket('ws://localhost:5000/stream-audio');
       
@@ -98,7 +99,10 @@ export const getAyaResponse = async (message, chatHistory = [], imageData = null
         const base64Audio = btoa(
           new Uint8Array(audioData).reduce((data, byte) => data + String.fromCharCode(byte), '')
         );
-        socket.send(JSON.stringify({ audio_data: base64Audio }));
+        socket.send(JSON.stringify({ 
+          audio_data: base64Audio,
+          model: model
+        }));
       };
       
       socket.onmessage = (event) => {
@@ -122,4 +126,53 @@ export const getAyaResponse = async (message, chatHistory = [], imageData = null
         console.log('WebSocket connection closed');
       };
     });
+  };
+
+  /**
+   * Get available transcription models from backend
+   * @returns {Promise<Object>} - Available models and current model
+   */
+  export const getAvailableModels = async () => {
+    try {
+      const response = await fetch('http://localhost:5000/available-models');
+      
+      if (!response.ok) {
+        throw new Error(`Error: ${response.status}`);
+      }
+      
+      return await response.json();
+    } catch (error) {
+      console.error('Error fetching available models:', error);
+      throw error;
+    }
+  };
+
+  /**
+   * Set active transcription model
+   * @param {string} model - Model name
+   * @param {string} size - Optional model size
+   * @returns {Promise<Object>} - Response with success status
+   */
+  export const setTranscriptionModel = async (model, size = null) => {
+    try {
+      const response = await fetch('http://localhost:5000/set-model', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model,
+          size
+        }),
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Error: ${response.status}`);
+      }
+      
+      return await response.json();
+    } catch (error) {
+      console.error('Error setting transcription model:', error);
+      throw error;
+    }
   };

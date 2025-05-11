@@ -31,9 +31,20 @@ CORS(app, resources={
 sock = Sock(app)
 logging.basicConfig(level=logging.INFO)
 
-# Initialize faster-whisper model - load once at startup for efficiency
-model = WhisperModel("base", device="cpu")  # Use "cuda" if you have a compatible GPU
-logging.info("Faster-Whisper model loaded successfully")
+# Initialize models - lazy loading for efficiency
+models = {
+    "faster_whisper": None,
+    "whisper": None,
+    "wav2vec2": None,
+    "nemo": None,
+    "seamless": None,
+    "groqtts": None,
+    "groqasr":None
+}
+
+# Default model to use
+DEFAULT_MODEL = "faster_whisper"
+CURRENT_MODEL = DEFAULT_MODEL
 
 # Store active sessions
 active_sessions = {}
@@ -65,6 +76,87 @@ class AudioBuffer:
         with self.lock:
             return len(self.buffer) / self.sample_rate
 
+def load_model(model_name, model_size=None):
+    """
+    Lazy load the specified model
+    """
+    if model_name not in models:
+        raise ValueError(f"Unknown model: {model_name}")
+        
+    if models[model_name] is not None:
+        return models[model_name]
+        
+    if model_name == "faster_whisper":
+        size = model_size or "base"
+        logging.info(f"Loading faster-whisper model: {size}")
+        models[model_name] = WhisperModel(size, device="cpu")  # Use "cuda" if you have a compatible GPU
+    
+    elif model_name == "whisper":
+        import whisper
+        size = model_size or "base"
+        logging.info(f"Loading whisper model: {size}")
+        models[model_name] = whisper.load_model(size)
+    
+    elif model_name == "wav2vec2":
+        from transformers import Wav2Vec2ForCTC, Wav2Vec2Tokenizer
+        model_id = model_size or "facebook/wav2vec2-base-960h"
+        logging.info(f"Loading wav2vec2 model: {model_id}")
+        tokenizer = Wav2Vec2Tokenizer.from_pretrained(model_id)
+        model = Wav2Vec2ForCTC.from_pretrained(model_id)
+        models[model_name] = {"model": model, "tokenizer": tokenizer}
+    
+    elif model_name == "nemo":
+        from nemo.collections.asr.models import ASRModel
+        model_id = model_size or "stt_en_conformer_ctc_small"
+        logging.info(f"Loading NeMo model: {model_id}")
+        models[model_name] = ASRModel.from_pretrained(model_name=model_id)
+    
+    elif model_name == "seamless":
+        from models.seamless_inference import get_seamless_default_config, load_model as load_seamless_model
+        logging.info("Loading Seamless model")
+        models[model_name] = load_seamless_model(model_config=get_seamless_default_config())
+    
+    
+    return models[model_name]
+
+@app.route('/set-model', methods=['POST'])
+def set_model():
+    """
+    Endpoint to set the active transcription model
+    """
+    data = request.json
+    model_name = data.get('model', DEFAULT_MODEL)
+    model_size = data.get('size')
+    
+    global CURRENT_MODEL
+    
+    try:
+        if model_name not in models:
+            return jsonify({'error': f'Unknown model: {model_name}'}), 400
+            
+        # Load the model if not already loaded
+        load_model(model_name, model_size)
+        CURRENT_MODEL = model_name
+        
+        return jsonify({
+            'success': True,
+            'message': f'Model set to {model_name}',
+            'model': model_name
+        })
+    except Exception as e:
+        logging.error(f"Error setting model: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/available-models', methods=['GET'])
+def get_available_models():
+    """
+    Return the list of available transcription models
+    """
+    return jsonify({
+        'models': list(models.keys()),
+        'current_model': CURRENT_MODEL
+    })
+
 @sock.route('/stream-audio')
 def stream_audio(ws):
     """
@@ -85,20 +177,21 @@ def stream_audio(ws):
             try:
                 json_data = json.loads(data)
                 audio_data = json_data.get('audio_data')
-                #print(json_data, audio_data)
+                model_name = json_data.get('model', CURRENT_MODEL)
                 
                 if audio_data:
                     # Decode base64 audio data
                     audio_bytes = base64.b64decode(audio_data)
                     
-                    # Process with your STT model
-                    transcription = process_audio(audio_bytes, session_id)
+                    # Process with selected STT model
+                    transcription = process_audio(audio_bytes, session_id, model_name)
                     
                     # Only send back if there's actual transcription
                     if transcription:
                         ws.send(json.dumps({
                             'transcription': transcription,
-                            'timestamp': time.time()
+                            'timestamp': time.time(),
+                            'model': model_name
                         }))
             except Exception as e:
                 logging.error(f"Error processing audio chunk: {str(e)}")
@@ -121,15 +214,20 @@ def transcribe():
         return jsonify({'error': 'No audio file provided'}), 400
         
     audio_file = request.files['audio']
+    model_name = request.form.get('model', CURRENT_MODEL)
+    model_size = request.form.get('size')
     
     # Create a temporary file
     temp_file_path = os.path.join(tempfile.gettempdir(), f"{uuid.uuid4()}.webm")
     audio_file.save(temp_file_path)
     
     try:
-        # Process with your STT model
-        transcription = process_audio_file(temp_file_path)
-        return jsonify({'transcription': transcription})
+        # Process with the selected STT model
+        transcription = process_audio_file(temp_file_path, model_name, model_size)
+        return jsonify({
+            'transcription': transcription,
+            'model': model_name
+        })
     except Exception as e:
         logging.error(f"Error transcribing audio: {str(e)}")
         return jsonify({'error': str(e)}), 500
@@ -139,23 +237,38 @@ def transcribe():
             os.remove(temp_file_path)
 
 
-def synthesize_speech(text, lang='en', slow=False):
+def synthesize_speech(text, lang='en', slow=False,  model = "groqtts"):
+
     """
     Convert text to speech using Google's Text-to-Speech API
+    
     """
-    try:
-        # Create a temporary file
-        temp_dir = tempfile.gettempdir()
-        audio_path = os.path.join(temp_dir, f"{uuid.uuid4()}.mp3")
-        
-        # Generate speech using gTTS
-        tts = gTTS(text=text, lang=lang, slow=slow)
-        tts.save(audio_path)
-        
-        return audio_path
-    except Exception as e:
-        logging.error(f"Error in synthesize_speech: {str(e)}")
-        raise
+    if model == "gtts":
+        try:
+            # Create a temporary file
+            temp_dir = tempfile.gettempdir()
+            audio_path = os.path.join(temp_dir, f"{uuid.uuid4()}.mp3")
+            
+            # Generate speech using gTTS
+            tts = gTTS(text=text, lang=lang, slow=slow)
+            tts.save(audio_path)
+            
+            return audio_path
+        except Exception as e:
+            logging.error(f"Error in synthesize_speech: {str(e)}")
+            raise
+    else:
+        try:
+            # Create a temporary file
+            temp_dir = tempfile.gettempdir()
+            audio_path = os.path.join(temp_dir, f"{uuid.uuid4()}.mp3")
+            import model_runner
+            model_runner.synthesize_speech(text, model, output_filename=audio_path)
+            return audio_path
+        except Exception as e:
+            logging.error(f"Error in synthesize_speech: {str(e)}")
+            raise
+
 
 
 @app.route('/synthesize', methods=['POST'])
@@ -167,12 +280,13 @@ def synthesize():
     text = data.get("text", "").strip()
     lang = data.get("lang", "en")
     slow = data.get("slow", False)
+    model= data.get("model", "groqtts")
 
     if not text:
         return jsonify({"error": "Text input is required"}), 400
     
     try:
-        audio_path = synthesize_speech(text, lang, slow)
+        audio_path = synthesize_speech(text, lang, slow, model)
         return send_file(audio_path, mimetype="audio/mp3", as_attachment=True, download_name="output.mp3")
     except Exception as e:
         logging.error(f"Error synthesizing speech: {str(e)}")
@@ -202,55 +316,68 @@ def serve_audio(filename):
 @app.route('/aya-response', methods=['POST'])
 def get_aya_response():
     """
-    Endpoint to send transcribed text to Cohere's Aya Vision API and return the response
+    Endpoint to send transcribed text and optional image to Cohere's Aya Vision API and return the response
     """
-    # if not COHERE_API_KEY:
-    #     return jsonify({'error': 'COHERE_API_KEY not configured'}), 500
-        
+    if not COHERE_API_KEY:
+        return jsonify({'error': 'COHERE_API_KEY not configured'}), 500
+
     try:
-        # Get request data
         data = request.json
         if not data or 'message' not in data:
             return jsonify({'error': 'No message provided'}), 400
-            
+
         user_message = data['message']
-        chat_history = data.get('chatHistory', [])
-        image_data = data.get('image')  # Optional image data in base64
-        
-        # Configure Aya Vision API request
-        headers = {
-            'Authorization': f'Bearer {COHERE_API_KEY}',
-            'Content-Type': 'application/json'
-        }
-        
-        # Prepare request body
-        api_request = {
-            "message": user_message,
-            "chat_history": format_chat_history(chat_history)
-        }
-        
-        # Add image if provided
+        image_data = data.get('image')  # Optional base64 JPEG image
+
+        # Build the message content list
+        content = [{"type": "text", "text": user_message}]
         if image_data:
-            api_request["attachments"] = [{"source": {"type": "base64", "media_type": "image/jpeg", "data": image_data}}]
-        
-        # Call Cohere API
+            content.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/jpeg;base64,{image_data}"
+                }
+            })
+
+        # Construct the request payload
+        payload = {
+            "model": "c4ai-aya-vision-32b",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": content
+                }
+            ]
+        }
+
+        headers = {
+            "Authorization": f"Bearer {COHERE_API_KEY}",
+            "Content-Type": "application/json"
+        }
+
         response = requests.post(
-            'https://api.cohere.ai/v1/chat',
+            "https://api.cohere.ai/v2/chat",
             headers=headers,
-            json=api_request
+            json=payload
         )
-        
-        # Ensure the request was successful
+
         response.raise_for_status()
-        
-        # Parse the response
         result = response.json()
-        
+
+        # Extract text response from result
+        text_response = ""
+        if "text" in result:
+            text_response = result["text"]
+        elif "message" in result and "content" in result["message"]:
+            for item in result["message"]["content"]:
+                if item.get("type") == "text":
+                    text_response += item.get("text", "")
+
         return jsonify({
-            'response': result.get('text', ''),
+            'response': text_response,
             'message_id': result.get('message_id', '')
         })
-        
+
     except requests.exceptions.RequestException as e:
         logging.error(f"Error calling Cohere API: {str(e)}")
         if hasattr(e, 'response') and e.response is not None:
@@ -266,52 +393,72 @@ def get_aya_response_with_tts():
     """
     Enhanced endpoint that returns both Aya Vision response and synthesized speech
     """
+    if not COHERE_API_KEY:
+        return jsonify({'error': 'COHERE_API_KEY not configured'}), 500
+
     try:
-        # Get request data
         data = request.json
         if not data or 'message' not in data:
             return jsonify({'error': 'No message provided'}), 400
-            
+
         user_message = data['message']
-        chat_history = data.get('chatHistory', [])
         image_data = data.get('image')
-        
-        # Call the existing Aya Vision endpoint logic
-        headers = {
-            'Authorization': f'Bearer {COHERE_API_KEY}',
-            'Content-Type': 'application/json'
-        }
-        
-        api_request = {
-            "message": user_message,
-            "chat_history": format_chat_history(chat_history)
-        }
-        
+        chat_history = data.get('chatHistory', [])
+
+        # Format chat history into Cohere's message format
+        messages = format_chat_history(chat_history)
+        # Append current user message and optional image
+        content = [{"type": "text", "text": user_message}]
         if image_data:
-            api_request["attachments"] = [{"source": {"type": "base64", "media_type": "image/jpeg", "data": image_data}}]
-        
+            content.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/jpeg;base64,{image_data}"
+                }
+            })
+        messages.append({
+            "role": "user",
+            "content": content
+        })
+
+        payload = {
+            "model": "c4ai-aya-vision-32b",
+            "messages": messages
+        }
+
+        headers = {
+            "Authorization": f"Bearer {COHERE_API_KEY}",
+            "Content-Type": "application/json"
+        }
+
         response = requests.post(
-            'https://api.cohere.ai/v1/chat',
+            "https://api.cohere.ai/v2/chat",
             headers=headers,
-            json=api_request
+            json=payload
         )
-        
+
         response.raise_for_status()
         result = response.json()
-        text_response = result.get('text', '')
-        
-        # Generate speech for the response using gTTS
+
+        # Extract response text
+        text_response = ""
+        if "text" in result:
+            text_response = result["text"]
+        elif "message" in result and "content" in result["message"]:
+            for item in result["message"]["content"]:
+                if item.get("type") == "text":
+                    text_response += item.get("text", "")
+
+        # Generate audio
         audio_path = synthesize_speech(text_response)
-        
-        # Return both text and audio URL
         audio_url = f"http://localhost:5000/audio/{os.path.basename(audio_path)}"
-        
+
         return jsonify({
             'response': text_response,
             'message_id': result.get('message_id', ''),
             'audio_url': audio_url
         })
-        
+
     except requests.exceptions.RequestException as e:
         logging.error(f"Error calling Cohere API: {str(e)}")
         if hasattr(e, 'response') and e.response is not None:
@@ -321,22 +468,27 @@ def get_aya_response_with_tts():
         logging.error(f"Error in get_aya_response_with_tts: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+
 def format_chat_history(chat_history):
     """
-    Format chat history for Cohere API
+    Format raw chat history into list of message dicts for Cohere's /v2/chat endpoint.
+    Expects input as: [{"role": "user"/"assistant", "message": "text"}]
     """
-    formatted_history = []
-    for msg in chat_history:
-        role = "USER" if not msg.get('isBot', False) else "CHATBOT"
-        formatted_history.append({
-            "role": role,
-            "message": msg.get('content', '')
-        })
-    return formatted_history
+    formatted = []
+    for item in chat_history:
+        role = item.get("role")
+        message_text = item.get("message")
+        if role and message_text:
+            formatted.append({
+                "role": role,
+                "content": [{"type": "text", "text": message_text}]
+            })
+    return formatted
 
-def process_audio(audio_bytes, session_id):
+
+def process_audio(audio_bytes, session_id, model_name=CURRENT_MODEL):
     """
-    Process audio bytes with the STT model
+    Process audio bytes with the selected STT model
     For streaming, we accumulate chunks and process when enough data is available
     """
     buffer = active_sessions.get(session_id)
@@ -363,15 +515,10 @@ def process_audio(audio_bytes, session_id):
         if len(audio_np) == 0:
             return ""
             
-        # Apply preprocessing for noise reduction
-        # cleaned_audio = noise_reduction_with_estimation(audio_np, 16000)
-        # cleaned_audio = apply_vad(cleaned_audio, 16000)
+        # Apply preprocessing for noise reduction if needed
         cleaned_audio = audio_np
-        if cleaned_audio is None or len(cleaned_audio) == 0:
-            logging.warning("No audio left after VAD")
-            return ""
         
-        # Save as temporary file for Faster-Whisper to process
+        # Save as temporary file for models to process
         temp_file_path = os.path.join(tempfile.gettempdir(), f"{uuid.uuid4()}.wav")
         
         # Ensure audio is in correct format for saving
@@ -386,11 +533,8 @@ def process_audio(audio_bytes, session_id):
             
         torchaudio.save(temp_file_path, audio_tensor, 16000)
         
-        # Use Faster-Whisper for transcription
-        segments, info = model.transcribe(temp_file_path, beam_size=5)
-        
-        # Combine all segments into a single transcription
-        transcription = " ".join([segment.text for segment in segments])
+        # Process with the selected model
+        transcription = process_audio_file(temp_file_path, model_name)
         
         # Clean up
         if os.path.exists(temp_file_path):
@@ -401,9 +545,9 @@ def process_audio(audio_bytes, session_id):
         logging.error(f"Error in process_audio: {str(e)}")
         return ""
 
-def process_audio_file(file_path):
+def process_audio_file(file_path, model_name=CURRENT_MODEL, model_size=None):
     """
-    Process a complete audio file with the STT model
+    Process a complete audio file with the selected STT model
     """
     try:
         # Load and preprocess audio
@@ -413,30 +557,73 @@ def process_audio_file(file_path):
         if waveform.shape[0] > 1:
             waveform = torch.mean(waveform, dim=0, keepdim=True)
         
+        # Resample to 16kHz if needed
+        if sample_rate != 16000:
+            resampler = torchaudio.transforms.Resample(orig_freq=sample_rate, new_freq=16000)
+            waveform = resampler(waveform)
+            sample_rate = 16000
+        
         # Save preprocessed audio to temporary file
         temp_file_path = os.path.join(tempfile.gettempdir(), f"{uuid.uuid4()}.wav")
         torchaudio.save(temp_file_path, waveform, sample_rate)
         
-        # Apply preprocessing
-        cleaned_path = os.path.join(tempfile.gettempdir(), f"{uuid.uuid4()}_cleaned.wav")
-        
-        # Use your existing preprocessing function
+        # Apply noise reduction preprocessing if needed
         from preprocessing_noisy_audio import save_audio
+        cleaned_path = os.path.join(tempfile.gettempdir(), f"{uuid.uuid4()}_cleaned.wav")
         cleaned_path = save_audio(temp_file_path, output_path=cleaned_path)
         
-        # Transcribe with Faster-Whisper
-        segments, info = model.transcribe(cleaned_path, beam_size=5)
-        transcription = " ".join([segment.text for segment in segments])
+        # Load or get the model
+        model = load_model(model_name, model_size)
+        
+        # Transcribe with the selected model
+        if model_name == "faster_whisper":
+            segments, info = model.transcribe(cleaned_path, beam_size=5)
+            transcription = " ".join([segment.text for segment in segments])
+        
+        elif model_name == "whisper":
+            result = model.transcribe(cleaned_path)
+            transcription = result["text"]
+        
+        elif model_name == "wav2vec2":
+            waveform, sample_rate = torchaudio.load(cleaned_path)
+            if sample_rate != 16000:
+                resampler = torchaudio.transforms.Resample(orig_freq=sample_rate, new_freq=16000)
+                waveform = resampler(waveform)
+            
+            if waveform.shape[0] > 1:
+                waveform = torch.mean(waveform, dim=0, keepdim=True)
+                
+            input_values = model["tokenizer"](waveform.squeeze().numpy(), return_tensors="pt").input_values
+            with torch.no_grad():
+                logits = model["model"](input_values).logits
+            
+            predicted_ids = torch.argmax(logits, dim=-1)
+            transcription = model["tokenizer"].decode(predicted_ids[0])
+        
+        elif model_name == "nemo":
+            transcription = model.transcribe([cleaned_path])[0]
+        
+        elif model_name == "seamless":
+            transcription = model.transcribe_file(file_path=cleaned_path)
+
+        elif model_name == "groqasr":
+            from model_runner import transcribe
+            transcription = transcribe(audio_path=cleaned_path, model="groqasr")
+        
+        else:
+            raise ValueError(f"Unknown model: {model_name}")
         
         # Clean up temporary files
         for path in [temp_file_path, cleaned_path]:
             if os.path.exists(path):
                 os.remove(path)
                 
-        return transcription
+        return transcription.strip()
     except Exception as e:
-        logging.error(f"Error in process_audio_file: {str(e)}")
+        logging.error(f"Error in process_audio_file with model {model_name}: {str(e)}")
         raise
 
 if __name__ == '__main__':
+    # Initialize the default model at startup
+    load_model(DEFAULT_MODEL)
     app.run(host='0.0.0.0', port=5000, debug=True)
