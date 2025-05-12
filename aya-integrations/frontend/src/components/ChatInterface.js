@@ -12,7 +12,9 @@ import {
   streamAudioForTranscription, 
   playResponseAudio, 
   getAvailableModels,
-  setTranscriptionModel
+  setTranscriptionModel,
+  getAvailableTTSModels,
+  setTTSModel
 } from "../lib/api";
 
 // Import shadcn Drawer components
@@ -50,6 +52,10 @@ export default function ChatInterface() {
   const [availableModels, setAvailableModels] = useState([]);
   const [currentModel, setCurrentModel] = useState("");
   const [loadingModels, setLoadingModels] = useState(false);
+
+  const [availableTTSModels, setAvailableTTSModels] = useState(['gtts', 'groqtts', 'groqasr']);
+  const [currentTTSModel, setCurrentTTSModel] = useState("gtts");
+  const [loadingTTSModels, setLoadingTTSModels] = useState(false);
   
   const messagesEndRef = useRef(null);
   const messageContainerRef = useRef(null);
@@ -95,7 +101,43 @@ export default function ChatInterface() {
   // Fetch available models on component mount
   useEffect(() => {
     fetchAvailableModels();
+    fetchAvailableTTSModels();
   }, []);
+
+  const fetchAvailableTTSModels = async () => {
+    try {
+      setLoadingTTSModels(true);
+      const modelData = await getAvailableTTSModels(); // You'll need to add this to api.js
+      setAvailableTTSModels(modelData.models || []);
+      setCurrentTTSModel(modelData.current_model || "gtts");
+      setLoadingTTSModels(false);
+    } catch (error) {
+      console.error("Error fetching TTS models:", error);
+      setLoadingTTSModels(false);
+    }
+  };
+
+  const handleTTSModelChange = async (modelName) => {
+    try {
+      setLoadingTTSModels(true);
+      const result = await setTTSModel(modelName); // You'll need to add this to api.js
+      if (result.success) {
+        setCurrentTTSModel(modelName);
+        // Add system message about model change
+        setMessages(prev => [
+          ...prev,
+          {
+            isBot: true,
+            content: `Text-to-speech model changed to ${modelName}.`
+          }
+        ]);
+      }
+      setLoadingTTSModels(false);
+    } catch (error) {
+      console.error("Error changing TTS model:", error);
+      setLoadingTTSModels(false);
+    }
+  };
 
   // Function to fetch available transcription models
   const fetchAvailableModels = async () => {
@@ -217,74 +259,77 @@ export default function ChatInterface() {
 
   const handleSendMessage = async (e) => {
     e?.preventDefault();
+    
     if ((input.trim() === "" && transcript.trim() === "") && !capturedImage) return;
-    
+  
     const messageContent = input || transcript;
-    
-    // Process image if available
+  
+    // Convert captured image to base64 if it exists
     let base64Image = null;
     if (capturedImage) {
       base64Image = await getBase64FromImageUrl(capturedImage);
     }
-    
-    // Add user message to chat history
+  
+    // Add user's message to chat history
     const newMessage = {
-      isBot: false, 
+      isBot: false,
       content: messageContent,
       image: capturedImage
     };
-    
     setMessages(prev => [...prev, newMessage]);
+  
+    // Reset inputs
     setInput("");
     setTranscript("");
     setIsProcessing(true);
-    
+  
     try {
       // Stop any currently playing audio
       if (currentAudio) {
         currentAudio.pause();
+        setCurrentAudio(null);
       }
-      
-      // Call backend API with TTS flag based on user preference
+  
+      // Send request to backend with all parameters
       const response = await getAyaResponse(
         messageContent,
         formatMessagesForApi(),
-        base64Image, // Send base64 encoded image
-        audioEnabled // Send the audio preference
+        base64Image,
+        audioEnabled,
+        currentTTSModel // New TTS model parameter
       );
-      
-      // Add the response to chat
+  
+      // Add bot's response to chat
       setMessages(prev => [
         ...prev,
         {
           isBot: true,
           content: response.response,
           messageId: response.message_id,
-          audioUrl: response.audio_url // Store audio URL with message
+          audioUrl: response.audio_url
         }
       ]);
-      
-      // Play audio if enabled and URL is available
+  
+      // Handle audio playback if enabled
       if (audioEnabled && response.audio_url) {
         const audio = new Audio(response.audio_url);
         setCurrentAudio(audio);
-        
-        audio.onended = () => {
+  
+        audio.onended = () => setCurrentAudio(null);
+        audio.onerror = (err) => {
+          console.error("Audio playback error:", err);
           setCurrentAudio(null);
         };
-        
-        audio.onerror = (e) => {
-          console.error("Audio playback error:", e);
-          setCurrentAudio(null);
-        };
-        
-        audio.play().catch(error => {
-          console.error('Error playing audio:', error);
-        });
+  
+        try {
+          await audio.play();
+        } catch (playError) {
+          console.error("Error playing audio:", playError);
+        }
       }
+  
     } catch (error) {
       console.error("Error getting response:", error);
-      // Show error message to user
       setMessages(prev => [
         ...prev,
         {
@@ -297,7 +342,7 @@ export default function ChatInterface() {
       setIsProcessing(false);
       setCapturedImage(null);
     }
-  };
+  };  
 
   const startRecording = () => {
     if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
@@ -629,11 +674,12 @@ export default function ChatInterface() {
             <DrawerHeader>
               <DrawerTitle>Settings</DrawerTitle>
               <DrawerDescription>
-                Configure transcription and audio settings
+                Configure transcription and speech settings
               </DrawerDescription>
             </DrawerHeader>
             
             <div className="p-4 pb-0">
+              {/* STT Models Section */}
               <div className="mb-6">
                 <h4 className="font-medium mb-2 text-sm">Transcription Model</h4>
                 <div className="flex flex-wrap gap-2">
@@ -661,19 +707,33 @@ export default function ChatInterface() {
                 </p>
               </div>
               
+              {/* TTS Models Section */}
               <div className="mb-6">
-                <h4 className="font-medium mb-2 text-sm">Text-to-Speech</h4>
-                <Button
-                  variant={audioEnabled ? "default" : "outline"}
-                  size="sm"
-                  onClick={toggleAudio}
-                >
-                  {audioEnabled ? (
-                    <><Volume2 className="h-4 w-4 mr-1" /> Enabled</>
+                <h4 className="font-medium mb-2 text-sm">Text-to-Speech Model</h4>
+                <div className="flex flex-wrap gap-2">
+                  {loadingTTSModels ? (
+                    <div className="flex items-center">
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      <span>Loading TTS models...</span>
+                    </div>
                   ) : (
-                    <><VolumeX className="h-4 w-4 mr-1" /> Disabled</>
+                    availableTTSModels.map(model => (
+                      <Button
+                        key={model}
+                        variant={model === currentTTSModel ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => handleTTSModelChange(model)}
+                        disabled={loadingTTSModels || !audioEnabled}
+                      >
+                        {model}
+                      </Button>
+                    ))
                   )}
-                </Button>
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  Current TTS model: <span className="font-medium">{currentTTSModel}</span>
+                  {!audioEnabled && <span className="ml-2 text-orange-500">(TTS is disabled)</span>}
+                </p>
               </div>
             </div>
             

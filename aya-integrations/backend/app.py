@@ -37,14 +37,19 @@ models = {
     "whisper": None,
     "wav2vec2": None,
     "nemo": None,
-    "seamless": None,
-    "groqtts": None,
-    "groqasr":None
+    "seamless": None
 }
 
 # Default model to use
 DEFAULT_MODEL = "faster_whisper"
 CURRENT_MODEL = DEFAULT_MODEL
+
+# Default TTS model
+DEFAULT_TTS_MODEL = "gtts"
+CURRENT_TTS_MODEL = DEFAULT_TTS_MODEL
+
+# Available TTS models
+TTS_MODELS = ["gtts", "groqtts", "groqasr"]
 
 # Store active sessions
 active_sessions = {}
@@ -157,6 +162,41 @@ def get_available_models():
         'current_model': CURRENT_MODEL
     })
 
+@app.route('/available-tts-models', methods=['GET'])
+def get_available_tts_models():
+    """
+    Return the list of available text-to-speech models
+    """
+    return jsonify({
+        'models': TTS_MODELS,
+        'current_model': CURRENT_TTS_MODEL
+    })
+
+@app.route('/set-tts-model', methods=['POST'])
+def set_tts_model():
+    """
+    Endpoint to set the active text-to-speech model
+    """
+    data = request.json
+    model_name = data.get('model', DEFAULT_TTS_MODEL)
+    
+    global CURRENT_TTS_MODEL
+    
+    try:
+        if model_name not in TTS_MODELS:
+            return jsonify({'error': f'Unknown TTS model: {model_name}'}), 400
+            
+        CURRENT_TTS_MODEL = model_name
+        
+        return jsonify({
+            'success': True,
+            'message': f'TTS model set to {model_name}',
+            'model': model_name
+        })
+    except Exception as e:
+        logging.error(f"Error setting TTS model: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
 @sock.route('/stream-audio')
 def stream_audio(ws):
     """
@@ -237,38 +277,45 @@ def transcribe():
             os.remove(temp_file_path)
 
 
-def synthesize_speech(text, lang='en', slow=False,  model = "groqtts"):
-
+def synthesize_speech(text, lang='en', slow=False, model=None):
     """
-    Convert text to speech using Google's Text-to-Speech API
+    Convert text to speech using the specified TTS model
     
+    Args:
+        text (str): Text to synthesize
+        lang (str): Language code for synthesis
+        slow (bool): Whether to use slower speech rate
+        model (str): TTS model to use (defaults to current model)
+    
+    Returns:
+        str: Path to the generated audio file
     """
-    if model == "gtts":
-        try:
-            # Create a temporary file
-            temp_dir = tempfile.gettempdir()
-            audio_path = os.path.join(temp_dir, f"{uuid.uuid4()}.mp3")
-            
+    if model is None:
+        model = CURRENT_TTS_MODEL
+        
+    try:
+        # Create a temporary file
+        temp_dir = tempfile.gettempdir()
+        audio_path = os.path.join(temp_dir, f"{uuid.uuid4()}.mp3")
+        
+        if model == "gtts":
             # Generate speech using gTTS
             tts = gTTS(text=text, lang=lang, slow=slow)
             tts.save(audio_path)
-            
-            return audio_path
-        except Exception as e:
-            logging.error(f"Error in synthesize_speech: {str(e)}")
-            raise
-    else:
-        try:
-            # Create a temporary file
-            temp_dir = tempfile.gettempdir()
-            audio_path = os.path.join(temp_dir, f"{uuid.uuid4()}.mp3")
+        elif model == "groqtts":
+            # Use Groq TTS model
             import model_runner
-            model_runner.synthesize_speech(text, model, output_filename=audio_path)
-            return audio_path
-        except Exception as e:
-            logging.error(f"Error in synthesize_speech: {str(e)}")
-            raise
-
+            model_runner.synthesize_speech(text, "groqtts", output_filename=audio_path)
+        else:
+            # Default to gTTS if model is not recognized
+            logging.warning(f"Unknown TTS model: {model}, falling back to gtts")
+            tts = gTTS(text=text, lang=lang, slow=slow)
+            tts.save(audio_path)
+            
+        return audio_path
+    except Exception as e:
+        logging.error(f"Error in synthesize_speech: {str(e)}")
+        raise
 
 
 @app.route('/synthesize', methods=['POST'])
@@ -280,7 +327,7 @@ def synthesize():
     text = data.get("text", "").strip()
     lang = data.get("lang", "en")
     slow = data.get("slow", False)
-    model= data.get("model", "groqtts")
+    model = data.get("model", CURRENT_TTS_MODEL)
 
     if not text:
         return jsonify({"error": "Text input is required"}), 400
@@ -404,6 +451,7 @@ def get_aya_response_with_tts():
         user_message = data['message']
         image_data = data.get('image')
         chat_history = data.get('chatHistory', [])
+        tts_model = data.get('tts_model', CURRENT_TTS_MODEL)  # Get the specified TTS model
 
         # Format chat history into Cohere's message format
         messages = format_chat_history(chat_history)
@@ -449,8 +497,8 @@ def get_aya_response_with_tts():
                 if item.get("type") == "text":
                     text_response += item.get("text", "")
 
-        # Generate audio
-        audio_path = synthesize_speech(text_response)
+        # Generate audio using the specified TTS model
+        audio_path = synthesize_speech(text_response, model=tts_model)
         audio_url = f"http://localhost:5000/audio/{os.path.basename(audio_path)}"
 
         return jsonify({

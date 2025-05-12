@@ -8,7 +8,7 @@
  * @param {boolean} withSpeech - Whether to request speech synthesis
  * @returns {Promise<Object>} - Response from Aya Vision API with optional audio URL
  */
-export const getAyaResponse = async (message, chatHistory = [], imageData = null, withSpeech = false) => {
+export const getAyaResponse = async (message, chatHistory = [], imageData = null, withSpeech = false, ttsModel = 'gtts') => {
     try {
       // Determine which endpoint to use based on speech synthesis requirement
       const endpoint = withSpeech ? 'aya-response-tts' : 'aya-response';
@@ -22,6 +22,7 @@ export const getAyaResponse = async (message, chatHistory = [], imageData = null
           message,
           chatHistory,
           image: imageData,
+          tts_model: ttsModel, // Add the TTS model parameter
         }),
       });
   
@@ -30,12 +31,6 @@ export const getAyaResponse = async (message, chatHistory = [], imageData = null
       }
   
       const result = await response.json();
-      
-      // If speech was requested, play the audio
-      if (withSpeech && result.audio_url) {
-        playResponseAudio(result.audio_url);
-      }
-      
       return result;
     } catch (error) {
       console.error('Error getting Aya response:', error);
@@ -173,6 +168,49 @@ export const getAyaResponse = async (message, chatHistory = [], imageData = null
       return await response.json();
     } catch (error) {
       console.error('Error setting transcription model:', error);
+      throw error;
+    }
+  };
+
+  export const getAvailableTTSModels = async () => {
+    try {
+      const response = await fetch('http://localhost:5000/available-tts-models');
+      
+      if (!response.ok) {
+        throw new Error(`Error: ${response.status}`);
+      }
+      
+      return await response.json();
+    } catch (error) {
+      console.error('Error fetching available TTS models:', error);
+      throw error;
+    }
+  };
+  
+  /**
+   * Set active TTS model
+   * @param {string} model - Model name
+   * @returns {Promise<Object>} - Response with success status
+   */
+  export const setTTSModel = async (model) => {
+    try {
+      const response = await fetch('http://localhost:5000/set-tts-model', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model
+        }),
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Error: ${response.status}`);
+      }
+      
+      return await response.json();
+    } catch (error) {
+      console.error('Error setting TTS model:', error);
       throw error;
     }
   };
