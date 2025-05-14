@@ -1,1 +1,4 @@
 stt-audio/stt-env/
+venv
+
+__pycache__

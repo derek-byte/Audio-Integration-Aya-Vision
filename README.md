@@ -1,7 +1,7 @@
 # Integrating Audio for Aya Vision
 
 ## Summary
-This project focuses on integrating audio processing capabilities into **Aya Vision**, aiming to enhance its multimodal understanding. The key components include **Speech-to-Text (STT)**, **Text-to-Speech (TTS)**, and **audio-visual fusion** to improve scene comprehension and accessibility.
+This project focuses on integrating speech and audio processing capabilities into **Aya Vision**, aiming to enhance its multimodal understanding. The key components include **Speech-to-Text (STT)**, **Text-to-Speech (TTS)**, and **audio-visual fusion** to improve scene comprehension and accessibility.
 
 ## Project Scope
 The scope of this project is to explore the integration of audio capabilities into Aya Vision, starting with voice-based interaction. The goal is to assess the potential of adding STT and TTS functionalities to enhance accessibility, user interaction, and multimodal AI capabilities.
